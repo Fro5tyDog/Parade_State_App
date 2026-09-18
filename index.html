@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app version 1.0.1 — empty starting state (no seed people/sub-units/company), for OTA update testing -->
+<!-- app version 1.0.2 — squared filter buttons + mobile date-picker flash fix -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -81,7 +81,7 @@
   .selector-static { flex: 1; background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim); border-radius: 8px; padding: 9px 10px; font-size: 12.5px; }
 
   .chiprow { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
-  .chip { background: var(--panel); border: 1px solid var(--border); color: var(--text-dim); border-radius: 20px; padding: 6px 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; cursor: pointer; }
+  .chip { background: var(--panel); border: 1px solid var(--border); color: var(--text-dim); border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; cursor: pointer; }
   .chip.active { background: var(--text); color: var(--bg); border-color: var(--text); }
   .press-hint { font-size: 11px; color: var(--out); letter-spacing: 0.02em; margin: -2px 0 12px 2px; }
 
@@ -830,21 +830,29 @@
         detailDays = parseInt(di.value, 10) || 1;
         var r = reconcileDateRange_({ days: detailDays, startDate: detailStartDate, endDate: detailEndDate }, 'days');
         detailDays = r.days; detailEndDate = r.endDate;
-        renderReasonModal(empId, e);
+        // Targeted update only — re-rendering the whole modal here would destroy
+        // and recreate these very inputs mid-interaction, which is what was
+        // causing the native mobile date picker to flash and snap to today's
+        // date instead of whatever was actually being picked.
+        var endInputEl = document.getElementById('detailEndInput');
+        if (endInputEl) endInputEl.value = detailEndDate;
       });
       var si = document.getElementById('detailStartInput');
       if (si) si.addEventListener('change', function () {
         detailStartDate = si.value;
         var r = reconcileDateRange_({ days: detailDays, startDate: detailStartDate, endDate: detailEndDate }, 'start');
         detailDays = r.days; detailEndDate = r.endDate;
-        renderReasonModal(empId, e);
+        var endInputEl = document.getElementById('detailEndInput');
+        if (endInputEl) endInputEl.value = detailEndDate;
       });
       var eiInput = document.getElementById('detailEndInput');
       if (eiInput) eiInput.addEventListener('change', function () {
         detailEndDate = eiInput.value;
         var r = reconcileDateRange_({ days: detailDays, startDate: detailStartDate, endDate: detailEndDate }, 'end');
         detailDays = r.days; detailEndDate = r.endDate;
-        renderReasonModal(empId, e);
+        // Same targeted-update principle as Start date above.
+        var daysInputEl = document.getElementById('detailDaysInput');
+        if (daysInputEl) daysInputEl.value = detailDays;
       });
       document.getElementById('detailConfirmBtn').addEventListener('click', function () {
         var result = cfg2.type === 'dates' ? buildDatesReasonString_(detailReasonName, detailDays, detailStartDate)
@@ -1851,21 +1859,29 @@
         absenceForm.days = parseInt(daysInput.value, 10) || 1;
         var r = reconcileDateRange_({ days: absenceForm.days, startDate: absenceForm.date, endDate: absenceForm.endDate }, 'days');
         absenceForm.days = r.days; absenceForm.endDate = r.endDate;
-        render();
+        var endDateEl = document.getElementById('absEndDate');
+        if (endDateEl) endDateEl.value = absenceForm.endDate;
       });
       var dateInput = document.getElementById('absDate');
       if (dateInput) dateInput.addEventListener('change', function () {
+        // Targeted update only — re-rendering the whole panel here would destroy
+        // and recreate these very inputs mid-interaction, which is what was
+        // causing the native mobile date picker to flash and snap to today's
+        // date instead of whatever was actually being picked.
         absenceForm.date = dateInput.value;
         var r = reconcileDateRange_({ days: absenceForm.days, startDate: absenceForm.date, endDate: absenceForm.endDate }, 'start');
         absenceForm.days = r.days; absenceForm.endDate = r.endDate;
-        render();
+        var endDateEl = document.getElementById('absEndDate');
+        if (endDateEl) endDateEl.value = absenceForm.endDate;
       });
       var endDateInput = document.getElementById('absEndDate');
       if (endDateInput) endDateInput.addEventListener('change', function () {
         absenceForm.endDate = endDateInput.value;
         var r = reconcileDateRange_({ days: absenceForm.days, startDate: absenceForm.date, endDate: absenceForm.endDate }, 'end');
         absenceForm.days = r.days; absenceForm.endDate = r.endDate;
-        render();
+        // Same targeted-update principle as Start date above.
+        var daysEl = document.getElementById('absDays');
+        if (daysEl) daysEl.value = absenceForm.days;
       });
       var submitBtn = document.getElementById('absSubmitBtn'); if (submitBtn) submitBtn.addEventListener('click', function () { submitAbsenceForm_(catKey); });
       var cancelBtn = document.getElementById('absCancelBtn'); if (cancelBtn) cancelBtn.addEventListener('click', function () {
@@ -1943,25 +1959,44 @@
     return '<div class="datarow ' + cls + '" data-histkey="' + esc(h.key) + '"><div class="title">' + esc(title) + '</div><div class="line2">' + esc(line2Parts.join(' · ')) + '</div></div>';
   }
   function historyHtml() {
-    var results = getFilteredHistory();
     var html = '<h2 style="margin-bottom:10px;">HISTORY</h2>';
     html += '<div class="field-row"><label>Date filter</label><input type="date" id="historyDateFilter" value="' + esc(historyDateFilter) + '"></div>';
     html += '<div class="check-row">' +
       '<label class="check-label"><input type="checkbox" id="histFilterAM" ' + (historyShowAM ? 'checked' : '') + '> AM PARADE</label>' +
       '<label class="check-label"><input type="checkbox" id="histFilterPM" ' + (historyShowPM ? 'checked' : '') + '> PM PARADE</label>' +
       '<label class="check-label"><input type="checkbox" id="histFilterStayIn" ' + (historyShowStayIn ? 'checked' : '') + '> STAY-IN</label></div>';
-    html += results.map(historyRowHtml).join('') || '<div class="empty-hint">No saved records match this filter.</div>';
+    html += '<div id="historyResults">' + historyResultsHtml_() + '</div>';
     return html;
   }
-  function bindHistoryEvents() {
-    var dateInput = document.getElementById('historyDateFilter');
-    if (dateInput) dateInput.addEventListener('change', function () { historyDateFilter = dateInput.value; render(); });
-    var amCheck = document.getElementById('histFilterAM'); if (amCheck) amCheck.addEventListener('change', function () { historyShowAM = amCheck.checked; render(); });
-    var pmCheck = document.getElementById('histFilterPM'); if (pmCheck) pmCheck.addEventListener('change', function () { historyShowPM = pmCheck.checked; render(); });
-    var siCheck = document.getElementById('histFilterStayIn'); if (siCheck) siCheck.addEventListener('change', function () { historyShowStayIn = siCheck.checked; render(); });
+  function historyResultsHtml_() {
+    var results = getFilteredHistory();
+    return results.map(historyRowHtml).join('') || '<div class="empty-hint">No saved records match this filter.</div>';
+  }
+  function updateHistoryResults_() {
+    var container = document.getElementById('historyResults');
+    if (!container) return;
+    container.innerHTML = historyResultsHtml_();
+    bindHistoryResultRowEvents_();
+  }
+  function bindHistoryResultRowEvents_() {
     document.querySelectorAll('[data-histkey]').forEach(function (row) {
       row.addEventListener('click', function () { openHistoryView(row.getAttribute('data-histkey')); });
     });
+  }
+  function bindHistoryEvents() {
+    var dateInput = document.getElementById('historyDateFilter');
+    if (dateInput) dateInput.addEventListener('change', function () {
+      // Targeted update only — re-rendering the whole page here would destroy
+      // and recreate this very input mid-interaction, which is what was
+      // causing the native mobile date picker to flash and snap to today's
+      // date instead of whatever was actually being picked.
+      historyDateFilter = dateInput.value;
+      updateHistoryResults_();
+    });
+    var amCheck = document.getElementById('histFilterAM'); if (amCheck) amCheck.addEventListener('change', function () { historyShowAM = amCheck.checked; render(); });
+    var pmCheck = document.getElementById('histFilterPM'); if (pmCheck) pmCheck.addEventListener('change', function () { historyShowPM = pmCheck.checked; render(); });
+    var siCheck = document.getElementById('histFilterStayIn'); if (siCheck) siCheck.addEventListener('change', function () { historyShowStayIn = siCheck.checked; render(); });
+    bindHistoryResultRowEvents_();
   }
   function openHistoryView(key) {
     var h = historyList.filter(function (x) { return x.key === key; })[0];
