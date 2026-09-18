@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- app version 1.0.1 — empty starting state (no seed people/sub-units/company), for OTA update testing -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -204,23 +205,9 @@
   var EMPLOYEE_RANKS = ['REC', 'PTE', 'LCP', 'CPL', '3SG', '2SG', '1SG', 'SSG', 'MSG', '2LT', 'LTA'];
   var SUPERIOR_RANKS = ['3SG', '2SG', '1SG', 'SSG', 'MSG', '3WO', '2WO', '1WO', 'MWO', 'SWO', '2LT', 'LTA', 'CPT', 'MAJ', 'LTC', 'SLTC', 'COL'];
 
-  var SEED_SUBUNITS = [
-    { id: 'su1', name: 'HQ COY' }, { id: 'su2', name: 'S1 BR' }, { id: 'su3', name: 'S2 BR' }
-  ];
-  var SEED_EMPLOYEES = [
-    { id: 'e1', rank: 'CPL', name: 'Ignatius', subUnit: 'HQ COY', isCDS: true, isExcluded: false, isORD: false, isStayIn: true },
-    { id: 'e2', rank: 'PTE', name: 'Rafael', subUnit: 'HQ COY', isCDS: false, isExcluded: false, isORD: false, isStayIn: true },
-    { id: 'e3', rank: '3SG', name: 'Wu Ao', subUnit: 'HQ COY', isCDS: false, isExcluded: false, isORD: false, isStayIn: true },
-    { id: 'e4', rank: 'CPL', name: 'Mukilan', subUnit: 'S1 BR', isCDS: false, isExcluded: false, isORD: false, isStayIn: false },
-    { id: 'e5', rank: 'PTE', name: 'Julian', subUnit: 'S1 BR', isCDS: false, isExcluded: false, isORD: false, isStayIn: false },
-    { id: 'e6', rank: '3SG', name: 'Anthony', subUnit: 'S1 BR', isCDS: false, isExcluded: false, isORD: false, isStayIn: true },
-    { id: 'e7', rank: 'PTE', name: 'Shawn', subUnit: 'S2 BR', isCDS: false, isExcluded: false, isORD: false, isStayIn: false },
-    { id: 'e8', rank: 'CPL', name: 'Hafizuddin', subUnit: 'S2 BR', isCDS: false, isExcluded: false, isORD: false, isStayIn: false }
-  ];
-  var SEED_SUPERIORS = [
-    { id: 's1', rank: 'CPT', name: 'Lim', subUnit: 'HQ COY', isCDO: true },
-    { id: 's2', rank: '2LT', name: 'Tan', subUnit: 'S1 BR', isCDO: false }
-  ];
+  var SEED_SUBUNITS = [];
+  var SEED_EMPLOYEES = [];
+  var SEED_SUPERIORS = [];
 
   // ================= INDEXEDDB DATA LAYER =================
   var DB_NAME = 'paradeStateApp';
@@ -388,7 +375,7 @@
   function uid_() { return 'id' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
   // ================= STATE =================
-  var APP = { subUnits: [], employees: [], superiors: [], attendance: [], dailyDuty: {}, date: '', mcRecords: [], leaveRecords: [], maRecords: [], offRecords: [], otherRecords: [], companyName: 'BDE HQ Company', timePresets: [] };
+  var APP = { subUnits: [], employees: [], superiors: [], attendance: [], dailyDuty: {}, date: '', mcRecords: [], leaveRecords: [], maRecords: [], offRecords: [], otherRecords: [], companyName: '', timePresets: [] };
   var actualTodayStr = '';
   var dirtyKeys = new Set(); // "empId|session"
   var dailyDutyDirty = false;
@@ -436,7 +423,7 @@
     historyList = await idbGetAll('paradeHistory');
     await loadAbsenceRecords_();
     var companySetting = await idbGet('settings', 'companyName');
-    APP.companyName = companySetting ? companySetting.value : 'BDE HQ Company';
+    APP.companyName = companySetting ? companySetting.value : '';
     APP.timePresets = await idbGetAll('timePresets');
     if (APP.timePresets.length === 0) {
       var seedTimes = [{ id: uid_(), label: '0745HRS' }, { id: uid_(), label: '1715HRS' }];
@@ -1374,7 +1361,7 @@
     var present = opts.people.filter(function (p) { return p.bucket === 'In'; }).length;
 
     var lines = [];
-    lines.push((APP.companyName || 'BDE HQ Company') + ' (Strength as of ' + opts.label + ', ' + formatDDMMYY_(opts.dateIso) + ', ' + timeLabel + ')');
+    lines.push((APP.companyName || '') + ' (Strength as of ' + opts.label + ', ' + formatDDMMYY_(opts.dateIso) + ', ' + timeLabel + ')');
     lines.push('');
     lines.push('CDO -' + (opts.cdo ? ' ' + opts.cdo.toUpperCase() : ''));
     lines.push('CDS -' + (opts.cds ? ' ' + opts.cds.toUpperCase() : ''));
@@ -1894,7 +1881,7 @@
       var companyInput = document.getElementById('companyNameInput');
       var saveCompanyBtn = document.getElementById('saveCompanyBtn');
       if (saveCompanyBtn) saveCompanyBtn.addEventListener('click', async function () {
-        var val = (companyInput.value || '').trim() || 'BDE HQ Company';
+        var val = (companyInput.value || '').trim();
         APP.companyName = val;
         await idbBulkPut('settings', [{ key: 'companyName', value: val }]);
         showToast('Company name saved.');
