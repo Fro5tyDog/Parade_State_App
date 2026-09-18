@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app version 1.0.6 — iOS safe-area fix (notch/Dynamic Island/home indicator) + clearer OTA wording -->
+<!-- app version 1.0.7 — single-tap reason menu, sub-unit reordering, roster/history sub-unit sort, history JSON export, reason bucket table update, OUT stat fix -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -95,19 +95,17 @@
   .emprow.onduty { border-left-color: var(--onduty); }
   .emprow.leave { border-left-color: var(--leave); }
   .emprow.mc { border-left-color: var(--mc); }
-  .emprow.armed { background: #1a1210; }
   .emprow.excluded { opacity: 0.45; border-left-color: var(--text-faint); }
   .emprow.readonly { cursor: default; }
   .emprow .name { font-size: 13.5px; }
   .emprow .rank { color: var(--text-dim); font-size: 11px; margin-right: 6px; }
   .emprow .badge { font-size: 8.5px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim); border-radius: 4px; padding: 1px 5px; margin-left: 4px; letter-spacing: 0.04em; }
   .emprow .substatus { font-size: 11px; color: var(--text-dim); text-align: right; }
-  .emprow.out .substatus, .emprow.armed .substatus { color: var(--out); }
+  .emprow.out .substatus { color: var(--out); }
   .emprow.onduty .substatus { color: var(--onduty); }
   .emprow.leave .substatus { color: var(--leave); }
   .emprow.mc .substatus { color: var(--mc); }
-  .emprow.pressing::after { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,0.06); transform: scaleX(0); transform-origin: left; animation: pressfill 480ms linear forwards; }
-  @keyframes pressfill { to { transform: scaleX(1); } }
+  .emprow.pressing { background: var(--panel-2); }
 
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: flex-end; justify-content: center; z-index: 50; }
   .modal-sheet { background: var(--panel); border: 1px solid var(--border); border-radius: 14px 14px 0 0; padding: 18px 16px calc(22px + env(safe-area-inset-bottom, 0px)); width: 100%; max-width: 480px; max-height: 86vh; overflow-y: auto; }
@@ -171,9 +169,9 @@
   // ================= CONFIG =================
   var DEFAULT_REASONS = [
     ['MC', 'MC'], ['AM MA', 'Out'], ['PM MA', 'Out'], ['OSL', 'Leave'], ['LL', 'Leave'],
-    ['OFF', 'Leave'], ['RSO', 'Out'], ['OOC', 'Out'], ['ASA', 'Out'], ['GD', 'OnDuty'],
-    ['MEDIC DUTY', 'OnDuty'], ['MED COVER', 'OnDuty'], ['BR COHESION', 'OnDuty'], ['LATE', 'Out'],
-    ['SKILLSFUTURE', 'OnDuty'], ['COURSE', 'OnDuty'], ['BR WORK', 'OnDuty'], ['PM LL', 'Leave'],
+    ['OFF', 'Leave'], ['RSO', 'Out'], ['OOC', 'Out'], ['ASA', 'OnDuty'], ['GD', 'OnDuty'],
+    ['MEDIC DUTY', 'OnDuty'], ['MED COVER', 'OnDuty'], ['BR COHESION', 'Out'], ['LATE', 'Out'],
+    ['SKILLSFUTURE', 'Out'], ['COURSE', 'Out'], ['BR WORK', 'Out'], ['PM LL', 'Leave'],
     ['AM LL', 'Leave'], ['AM OSL', 'Leave'], ['PM OSL', 'Leave'], ['OTHER', 'Out']
   ];
   var REASON_BUCKET = {};
@@ -386,8 +384,6 @@
   var paradeSubFilter = 'ALL';
   var lastSaved = null, lastRefreshed = null;
   var stayInLastSaved = null, stayInLastRefreshed = null;
-  var pendingOut = { empId: null, session: null };
-  var pendingOutTimer = null;
   var dateChangeModal = { open: false, step: 'pick', pickedDate: '', conflictInfo: '' };
   var historyList = [];
   var historyShowAM = true, historyShowPM = true, historyShowStayIn = true;
@@ -415,6 +411,8 @@
       subUnits = SEED_SUBUNITS;
     }
     APP.subUnits = subUnits;
+    sortSubUnitsByOrder_();
+    await backfillSubUnitOrder_();
     APP.employees = await idbGetAll('employees');
     APP.superiors = await idbGetAll('superiors');
     APP.date = todayIso_();
@@ -581,11 +579,9 @@
         '<div class="substatus">Excluded from Parade State — tap to restore</div></div>';
     }
     var cls = BUCKET_CLASS[a.bucket] || 'out';
-    var isArmedOut = pendingOut.empId === e.id && pendingOut.session === session && a.bucket === 'In';
-    var sub = isArmedOut ? 'Tap again to mark Out'
-      : session === 'STAYIN' ? (a.reason ? a.reason : BUCKET_LABEL[a.bucket])
+    var sub = session === 'STAYIN' ? (a.reason ? a.reason : BUCKET_LABEL[a.bucket])
       : session + ' · ' + (a.reason ? a.reason : BUCKET_LABEL[a.bucket]);
-    return '<div class="emprow ' + cls + (isArmedOut ? ' armed' : '') + '" data-emp="' + e.id + '">' +
+    return '<div class="emprow ' + cls + '" data-emp="' + e.id + '">' +
       '<div class="name"><span class="rank">' + esc(e.rank) + '</span>' + esc(e.name) + '</div>' +
       '<div class="substatus">' + esc(sub) + '</div></div>';
   }
@@ -642,7 +638,7 @@
     html += '<div class="export-row"><button class="btn ghost full" id="btnExport">EXPORT</button></div>';
 
     html += '<div class="statgrid">' +
-      statCard('in', counts.In, 'IN') + statCard('out', counts.Out, 'OUT') + statCard('onduty', counts.OnDuty, 'ON DUTY') +
+      statCard('in', counts.In, 'IN') + statCard('out', total - counts.In, 'OUT') + statCard('onduty', counts.OnDuty, 'ON DUTY') +
       statCard('leave', counts.Leave, 'LEAVES') + statCard('mc', counts.MC, 'MC') + statCard('total', total, 'TOTAL') + '</div>';
     html += statusMsg;
 
@@ -669,7 +665,7 @@
     }
 
     html += '<div class="chiprow">' + chip('ALL', 'ALL') + chip('IN', 'IN') + chip('OUT', 'OUT') + chip('ONDUTY', 'ON DUTY') + chip('LEAVE', 'LEAVES') + chip('MC', 'MC') + '</div>';
-    html += '<div class="press-hint">Press and hold anyone to define a more specific reason</div>';
+    html += '<div class="press-hint">Tap anyone to mark a reason</div>';
     html += '<div id="empGroups">' + employeeGroupsHtml() + '</div>';
     return html;
   }
@@ -691,73 +687,53 @@
         row.addEventListener('pointerup', function () { if (!exMoved) restoreEmployee_(empId); });
         return;
       }
-      var timer = null, fired = false, moved = false, startX = 0, startY = 0;
+      var moved = false, startX = 0, startY = 0;
       row.addEventListener('pointerdown', function (ev) {
-        fired = false; moved = false; startX = ev.clientX; startY = ev.clientY;
+        moved = false; startX = ev.clientX; startY = ev.clientY;
         row.classList.add('pressing');
-        timer = setTimeout(function () {
-          fired = true;
-          row.classList.remove('pressing');
-          if (pendingOut.empId === empId) { clearTimeout(pendingOutTimer); pendingOut = { empId: null, session: null }; }
-          openReasonModal(empId);
-        }, 480);
       });
       row.addEventListener('pointermove', function (ev) {
-        if (moved || fired) return;
+        if (moved) return;
         var dx = ev.clientX - startX, dy = ev.clientY - startY;
-        if (Math.sqrt(dx * dx + dy * dy) > MOVE_CANCEL_PX) { moved = true; clearTimeout(timer); row.classList.remove('pressing'); }
+        if (Math.sqrt(dx * dx + dy * dy) > MOVE_CANCEL_PX) { moved = true; row.classList.remove('pressing'); }
       });
       ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (evt) {
         row.addEventListener(evt, function () {
-          clearTimeout(timer);
           row.classList.remove('pressing');
-          if (evt === 'pointerup' && !fired && !moved) toggleEmpLocal(empId);
+          if (evt === 'pointerup' && !moved) openReasonModal(empId);
         });
       });
       row.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
     });
   }
-  function toggleEmpLocal(empId) {
-    var a = attFor(empId, session);
-    if (a.bucket === 'In') {
-      if (pendingOut.empId === empId && pendingOut.session === session) {
-        clearTimeout(pendingOutTimer);
-        pendingOut = { empId: null, session: null };
-        applyAttendanceLocal({ empId: empId, session: session, status: 'Out', reason: '', bucket: 'Out' });
-        dirtyKeys.add(empId + '|' + session);
-        syncAbsenceRecordForLocal_(empId, '', '', APP.date, 1);
-        render();
-      } else {
-        pendingOut = { empId: empId, session: session };
-        clearTimeout(pendingOutTimer);
-        pendingOutTimer = setTimeout(function () { pendingOut = { empId: null, session: null }; render(); }, 1500);
-        render();
-      }
-    } else {
-      openRemoveReasonConfirmModal_(empId);
-    }
-  }
-  function performMarkIn_(empId) {
-    applyAttendanceLocal({ empId: empId, session: session, status: 'In', reason: '', bucket: 'In' });
+  function performMarkStatus_(empId, targetStatus) {
+    applyAttendanceLocal({ empId: empId, session: session, status: targetStatus, reason: '', bucket: targetStatus });
     dirtyKeys.add(empId + '|' + session);
-    if (session === 'AM') syncAbsenceRecordForLocal_(empId, '', '', APP.date, 1);
+    // Matches the original rules: a blank Out always syncs the absence record
+    // regardless of session, but a blank In only syncs from AM (PM staying
+    // silent here preserves whatever the person's AM absence record already
+    // said, in case they were legitimately absent that morning too).
+    if (targetStatus === 'Out' || (targetStatus === 'In' && session === 'AM')) {
+      syncAbsenceRecordForLocal_(empId, '', '', APP.date, 1);
+    }
     render();
   }
-  function openRemoveReasonConfirmModal_(empId) {
+  function openMarkConfirmModal_(empId, targetStatus) {
     var e = APP.employees.filter(function (x) { return x.id === empId; })[0];
     var a = attFor(empId, session);
+    var label = targetStatus === 'In' ? 'Mark In' : 'Mark Out';
     var html = '<div class="modal-overlay" id="modalOverlay"><div class="modal-sheet">' +
-      '<h3>Mark In</h3><div class="sub">' + esc(e.rank) + ' ' + esc(e.name) + ' is currently marked "' + esc(a.reason || BUCKET_LABEL[a.bucket]) + '". Type CONFIRM to mark them In instead.</div>' +
-      '<input type="text" id="removeReasonConfirmInput" class="field-row-input" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;margin-bottom:14px;" placeholder="Type CONFIRM" autocomplete="off" autocapitalize="off">' +
-      '<button class="btn full danger" id="removeReasonConfirmBtn" style="margin-bottom:8px;">MARK IN</button>' +
+      '<h3>' + label + '</h3><div class="sub">' + esc(e.rank) + ' ' + esc(e.name) + ' is currently marked "' + esc(a.reason || BUCKET_LABEL[a.bucket]) + '". Type CONFIRM to ' + label.toLowerCase() + ' instead.</div>' +
+      '<input type="text" id="markConfirmInput" style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;margin-bottom:14px;" placeholder="Type CONFIRM" autocomplete="off" autocapitalize="off">' +
+      '<button class="btn full danger" id="markConfirmBtn" style="margin-bottom:8px;">' + label.toUpperCase() + '</button>' +
       '<button class="modal-close" id="modalClose">CANCEL</button></div></div>';
     document.getElementById('modalRoot').innerHTML = html;
     document.getElementById('modalOverlay').addEventListener('click', function (ev) { if (ev.target.id === 'modalOverlay') closeModal(); });
     document.getElementById('modalClose').addEventListener('click', closeModal);
-    var input = document.getElementById('removeReasonConfirmInput');
-    document.getElementById('removeReasonConfirmBtn').addEventListener('click', function () {
+    var input = document.getElementById('markConfirmInput');
+    document.getElementById('markConfirmBtn').addEventListener('click', function () {
       if ((input.value || '').trim().toLowerCase() !== 'confirm') { showToast('Type CONFIRM exactly to proceed.'); return; }
-      performMarkIn_(empId);
+      performMarkStatus_(empId, targetStatus);
       closeModal();
     });
   }
@@ -812,7 +788,9 @@
         '<div class="reason-grid">' + plainReasons.map(function (r) {
           return '<button class="reason-btn" data-reason="' + esc(r) + '">' + esc(r) + '</button>';
         }).join('') + '</div>' +
-        '<button class="btn full ghost" id="btnMarkIn" style="margin:10px 0 8px;">MARK IN</button>' +
+        '<div class="field-row-2" style="margin:10px 0 8px;">' +
+        '<button class="btn ghost" id="btnMarkIn" style="flex:1;">MARK IN</button>' +
+        '<button class="btn ghost" id="btnMarkOut" style="flex:1;">MARK OUT</button></div>' +
         '<button class="btn ghost full" id="removeFromParadeBtn" style="margin-bottom:8px;">REMOVE FROM PARADE STATE</button>' +
         '<button class="modal-close" id="modalClose">CANCEL</button></div></div>';
     }
@@ -874,8 +852,15 @@
     } else {
       document.getElementById('btnMarkIn').addEventListener('click', function () {
         var currentRec = attFor(empId, session);
-        if (currentRec.reason) { closeModal(); openRemoveReasonConfirmModal_(empId); return; }
-        performMarkIn_(empId);
+        if (currentRec.reason) { closeModal(); openMarkConfirmModal_(empId, 'In'); return; }
+        performMarkStatus_(empId, 'In');
+        closeModal();
+      });
+      var markOutBtn = document.getElementById('btnMarkOut');
+      if (markOutBtn) markOutBtn.addEventListener('click', function () {
+        var currentRec = attFor(empId, session);
+        if (currentRec.reason) { closeModal(); openMarkConfirmModal_(empId, 'Out'); return; }
+        performMarkStatus_(empId, 'Out');
         closeModal();
       });
       document.querySelectorAll('[data-reason]').forEach(function (btn) {
@@ -1236,7 +1221,6 @@
     dirtyKeys.clear();
     dailyDutyDirty = false;
     lastSaved = null; lastRefreshed = null; stayInLastSaved = null; stayInLastRefreshed = null;
-    pendingOut = { empId: null, session: null };
     closeDateChangeModal();
     runAutoFillPass_();
     render();
@@ -1338,7 +1322,7 @@
     html += '<div class="selector-row"><label>CDS</label><select id="selStayInCDS"><option value="">— select —</option>' +
       cdsOptions.map(function (e) { return '<option value="' + esc(e.id) + '" ' + (APP.dailyDuty.stayInCdsEmployeeId === e.id ? 'selected' : '') + '>' + esc(e.rank) + ' ' + esc(e.name) + '</option>'; }).join('') + '</select></div>';
     html += '<div class="chiprow">' + chip('ALL', 'ALL') + chip('IN', 'IN') + chip('OUT', 'OUT') + chip('ONDUTY', 'ON DUTY') + chip('LEAVE', 'LEAVES') + chip('MC', 'MC') + '</div>';
-    html += '<div class="press-hint">Press and hold anyone to define a more specific reason</div>';
+    html += '<div class="press-hint">Tap anyone to mark a reason</div>';
     html += '<div id="empGroups">' + stayInEmployeeListHtml() + '</div>';
     return html;
   }
@@ -1383,6 +1367,7 @@
       if (!groups[g]) { groups[g] = []; order.push(g); }
       groups[g].push(p);
     });
+    order = sortGroupNamesBySubUnitOrder_(order);
 
     order.forEach(function (g) {
       var members = groups[g];
@@ -1453,10 +1438,15 @@
     if (dataSubTab === 'subunits') {
       html += '<button class="btn full savebtn" data-save-roster="subUnits" style="margin-bottom:10px;">SAVE ALL SUB-UNITS</button>';
       html += '<button class="btn full ghost" id="btnAddSubUnit" style="margin-bottom:10px;">+ ADD SUB-UNIT</button>';
-      html += APP.subUnits.map(function (s) {
+      html += '<div class="banner">This order controls how sub-units are grouped everywhere — Parade State, exports, and roster sorting.</div>';
+      html += APP.subUnits.map(function (s, i) {
         var count = APP.employees.filter(function (e) { return e.subUnit === s.name; }).length;
+        var isFirst = i === 0, isLast = i === APP.subUnits.length - 1;
         return '<div class="list-row" style="cursor:default;"><div><div class="name">' + esc(s.name) + '</div><div class="meta">' + count + ' people</div></div>' +
-          '<div style="display:flex;gap:6px;"><button class="btn small ghost" data-edit-subunit-btn="' + esc(s.id) + '">EDIT</button>' +
+          '<div style="display:flex;gap:4px;align-items:center;">' +
+          '<button class="btn small ghost" data-move-subunit="' + esc(s.id) + '" data-dir="-1" ' + (isFirst ? 'disabled style="opacity:0.35;"' : '') + '>&uarr;</button>' +
+          '<button class="btn small ghost" data-move-subunit="' + esc(s.id) + '" data-dir="1" ' + (isLast ? 'disabled style="opacity:0.35;"' : '') + '>&darr;</button>' +
+          '<button class="btn small ghost" data-edit-subunit-btn="' + esc(s.id) + '">EDIT</button>' +
           '<button class="btn small danger" data-del-subunit-btn="' + esc(s.id) + '">DELETE</button></div></div>';
       }).join('') || '<div class="empty-hint">No sub-units yet.</div>';
     } else if (dataSubTab === 'employees') {
@@ -1464,10 +1454,10 @@
       html += '<div class="field-row-2" style="margin-bottom:10px;">' +
         '<button class="btn ghost" id="btnAddEmployee" style="flex:1;">+ ADD EMPLOYEE</button>' +
         '<button class="btn ghost" id="btnBulkAddEmployee" style="flex:1;">BULK ADD</button></div>';
-      html += APP.employees.map(function (e) {
+      html += sortPeopleBySubUnitOrder_(APP.employees).map(function (e) {
         var badges = [];
         if (e.isCDS) badges.push('CDS'); if (e.isExcluded) badges.push('EXCL'); if (e.isORD) badges.push('ORD'); if (e.isStayIn) badges.push('STAY-IN');
-        return '<div class="list-row" style="cursor:default;"><div><div class="name">' + esc(e.rank) + ' ' + esc(e.name) + '</div><div class="meta">' + esc(e.subUnit) + (badges.length ? ' · ' + badges.join(', ') : '') + '</div></div>' +
+        return '<div class="list-row" style="cursor:default;"><div><div class="name">' + esc(e.rank) + ' ' + esc(e.name) + '</div><div class="meta">' + esc(e.subUnit || '— no sub-unit —') + (badges.length ? ' · ' + badges.join(', ') : '') + '</div></div>' +
           '<div style="display:flex;gap:6px;"><button class="btn small ghost" data-edit-employee-btn="' + esc(e.id) + '">EDIT</button>' +
           '<button class="btn small danger" data-del-employee-btn="' + esc(e.id) + '">DELETE</button></div></div>';
       }).join('') || '<div class="empty-hint">No employees yet.</div>';
@@ -1476,8 +1466,8 @@
       html += '<div class="field-row-2" style="margin-bottom:10px;">' +
         '<button class="btn ghost" id="btnAddSuperior" style="flex:1;">+ ADD SUPERIOR</button>' +
         '<button class="btn ghost" id="btnBulkAddSuperior" style="flex:1;">BULK ADD</button></div>';
-      html += APP.superiors.map(function (s) {
-        return '<div class="list-row" style="cursor:default;"><div><div class="name">' + esc(s.rank) + ' ' + esc(s.name) + '</div><div class="meta">' + esc(s.subUnit) + (s.isCDO ? ' · CDO' : '') + '</div></div>' +
+      html += sortPeopleBySubUnitOrder_(APP.superiors).map(function (s) {
+        return '<div class="list-row" style="cursor:default;"><div><div class="name">' + esc(s.rank) + ' ' + esc(s.name) + '</div><div class="meta">' + esc(s.subUnit || '— no sub-unit —') + (s.isCDO ? ' · CDO' : '') + '</div></div>' +
           '<div style="display:flex;gap:6px;"><button class="btn small ghost" data-edit-superior-btn="' + esc(s.id) + '">EDIT</button>' +
           '<button class="btn small danger" data-del-superior-btn="' + esc(s.id) + '">DELETE</button></div></div>';
       }).join('') || '<div class="empty-hint">No superiors yet.</div>';
@@ -1663,6 +1653,71 @@
     render();
   }
 
+  /** The order field is the single source of truth for sub-unit display
+   *  order everywhere — Parade State grouping, filter chips, roster sorting,
+   *  and every export. Sorting APP.subUnits by it here means every consumer
+   *  that just iterates APP.subUnits in array order automatically respects
+   *  whatever arrangement was set in the Data tab. */
+  function sortSubUnitsByOrder_() {
+    APP.subUnits.sort(function (a, b) { return (typeof a.order === 'number' ? a.order : 0) - (typeof b.order === 'number' ? b.order : 0); });
+  }
+  function nextSubUnitOrder_() {
+    var max = -1;
+    APP.subUnits.forEach(function (s) { if (typeof s.order === 'number' && s.order > max) max = s.order; });
+    return max + 1;
+  }
+  /** Legacy sub-units (created before this feature existed) won't have an
+   *  order field — this assigns one based on their current position so
+   *  future sorts are stable, without disturbing whatever order they were
+   *  already effectively in. */
+  async function backfillSubUnitOrder_() {
+    var changed = [];
+    APP.subUnits.forEach(function (s, i) {
+      if (typeof s.order !== 'number') { s.order = i; changed.push(s); }
+    });
+    if (changed.length) { try { await idbBulkPut('subUnits', changed); } catch (err) { console.log('[Data] Sub-unit order backfill failed:', err); } }
+  }
+  /** Sorts a list of group names (e.g. sub-unit names pulled from a saved
+   *  snapshot's people) by the current sub-unit order — any name that
+   *  doesn't match a currently-known sub-unit (e.g. one that's since been
+   *  renamed or deleted) keeps its original relative position, appended
+   *  after everything that does match. */
+  function sortGroupNamesBySubUnitOrder_(names) {
+    var orderOf = {};
+    APP.subUnits.forEach(function (s, i) { orderOf[s.name] = i; });
+    var known = names.filter(function (n) { return orderOf.hasOwnProperty(n); });
+    var unknown = names.filter(function (n) { return !orderOf.hasOwnProperty(n); });
+    known.sort(function (a, b) { return orderOf[a] - orderOf[b]; });
+    return known.concat(unknown);
+  }
+  /** Same idea as sortGroupNamesBySubUnitOrder_, but for a list of people
+   *  (employees/superiors) directly — used for the Data tab's roster lists.
+   *  Anyone whose sub-unit doesn't match a currently-known one (including no
+   *  sub-unit at all) sorts to the bottom. */
+  function sortPeopleBySubUnitOrder_(people) {
+    var orderOf = {};
+    APP.subUnits.forEach(function (s, i) { orderOf[s.name] = i; });
+    return people.slice().sort(function (a, b) {
+      var oa = orderOf.hasOwnProperty(a.subUnit) ? orderOf[a.subUnit] : Infinity;
+      var ob = orderOf.hasOwnProperty(b.subUnit) ? orderOf[b.subUnit] : Infinity;
+      return oa - ob;
+    });
+  }
+  async function moveSubUnit_(id, direction) {
+    var idx = APP.subUnits.findIndex(function (s) { return s.id === id; });
+    var swapWith = idx + direction;
+    if (idx === -1 || swapWith < 0 || swapWith >= APP.subUnits.length) return;
+    var a = APP.subUnits[idx], b = APP.subUnits[swapWith];
+    var tmp = a.order; a.order = b.order; b.order = tmp;
+    sortSubUnitsByOrder_();
+    try {
+      await idbBulkPut('subUnits', [a, b]);
+      render();
+    } catch (err) {
+      console.log('[Data] Move sub-unit FAILED:', err);
+      showToast('Reorder failed — ' + (err && err.message ? err.message : 'see Logcat/Console.'));
+    }
+  }
   function subUnitFormModal(existing) {
     var html = '<div class="modal-overlay" id="modalOverlay"><div class="modal-sheet">' +
       '<h3>' + (existing ? 'Edit' : 'Add') + ' Sub-Unit</h3>' +
@@ -1675,10 +1730,11 @@
     document.getElementById('saveSubUnitBtn').addEventListener('click', async function () {
       var name = document.getElementById('subUnitName').value.trim();
       if (!name) { showToast('Enter a name.'); return; }
-      var rec = existing ? Object.assign({}, existing, { name: name }) : { id: uid_(), name: name };
+      var rec = existing ? Object.assign({}, existing, { name: name }) : { id: uid_(), name: name, order: nextSubUnitOrder_() };
       try {
         await idbBulkPut('subUnits', [rec]);
         APP.subUnits = await idbGetAll('subUnits');
+        sortSubUnitsByOrder_();
         console.log('[Data] Sub-unit saved:', JSON.stringify(rec));
         showToast('Sub-unit saved.');
         closeDataModal();
@@ -1693,6 +1749,7 @@
     try {
       await idbDelete('subUnits', id);
       APP.subUnits = await idbGetAll('subUnits');
+      sortSubUnitsByOrder_();
       console.log('[Data] Sub-unit deleted:', id);
       showToast('Sub-unit deleted.');
       render();
@@ -1841,6 +1898,54 @@
     };
     return JSON.stringify(payload, null, 2);
   }
+  /** Exports whatever's currently visible under History's date/AM/PM/Stay-in
+   *  filters — each record's people list sorted by the current sub-unit
+   *  order (see sortPeopleBySubUnitOrder_), not insertion order. */
+  function buildHistoryExportJson_() {
+    var results = getFilteredHistory();
+    var records = results.map(function (h) {
+      var snap = h.snapshot || {};
+      return {
+        date: h.date, session: h.session, label: snap.label, timeLabel: snap.timeLabel,
+        cds: snap.cds, cdo: snap.cdo, total: snap.total, present: snap.present,
+        people: sortPeopleBySubUnitOrder_(snap.people || [])
+      };
+    });
+    return JSON.stringify({ exportedAt: new Date().toISOString(), appVersion: '1.0.6', recordCount: records.length, records: records }, null, 2);
+  }
+  function openHistoryExportJsonModal_() {
+    var text = buildHistoryExportJson_();
+    var html = '<div class="modal-overlay" id="modalOverlay"><div class="modal-sheet">' +
+      '<h3>Export History as JSON</h3><div class="sub">Covers whatever\'s currently filtered above. Copy this, or download it as a file.</div>' +
+      '<textarea class="export-textarea" id="historyJsonTextarea" readonly>' + esc(text) + '</textarea>' +
+      '<button class="btn full" id="copyHistoryJsonBtn" style="margin:10px 0 8px;">COPY TO CLIPBOARD</button>' +
+      '<button class="btn ghost full" id="downloadHistoryJsonBtn" style="margin-bottom:8px;">DOWNLOAD parade-history.json</button>' +
+      '<button class="modal-close" id="modalClose">CLOSE</button></div></div>';
+    document.getElementById('modalRoot').innerHTML = html;
+    var ta = document.getElementById('historyJsonTextarea');
+    ta.addEventListener('click', function () { ta.select(); });
+    document.getElementById('modalOverlay').addEventListener('click', function (ev) { if (ev.target.id === 'modalOverlay') closeModal(); });
+    document.getElementById('modalClose').addEventListener('click', closeModal);
+    document.getElementById('copyHistoryJsonBtn').addEventListener('click', function () {
+      ta.select();
+      try { navigator.clipboard.writeText(text); showToast('Copied.'); } catch (err) { document.execCommand('copy'); showToast('Copied.'); }
+    });
+    document.getElementById('downloadHistoryJsonBtn').addEventListener('click', function () {
+      try {
+        var blob = new Blob([text], { type: 'application/json' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = 'parade-history.json';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Downloading parade-history.json...');
+      } catch (err) {
+        console.log('[History] JSON download failed:', err);
+        showToast('Download not available here — use COPY instead.');
+      }
+    });
+  }
+
   function openMasterExportModal_() {
     var text = buildMasterExportJson_();
     var html = '<div class="modal-overlay" id="modalOverlay"><div class="modal-sheet">' +
@@ -1936,6 +2041,7 @@
       await idbBulkPut('settings', [{ key: 'companyName', value: companyName }]);
 
       APP.subUnits = subUnits;
+      sortSubUnitsByOrder_();
       APP.employees = employees;
       APP.superiors = superiors;
       APP.mcRecords = mcRecords;
@@ -2054,6 +2160,7 @@
     var addS = document.getElementById('btnAddSuperior'); if (addS) addS.addEventListener('click', function () { superiorFormModal(null); });
     var bulkAddE = document.getElementById('btnBulkAddEmployee'); if (bulkAddE) bulkAddE.addEventListener('click', function () { openBulkModal('employee'); });
     var bulkAddS = document.getElementById('btnBulkAddSuperior'); if (bulkAddS) bulkAddS.addEventListener('click', function () { openBulkModal('superior'); });
+    document.querySelectorAll('[data-move-subunit]').forEach(function (r) { r.addEventListener('click', function () { moveSubUnit_(r.getAttribute('data-move-subunit'), parseInt(r.getAttribute('data-dir'), 10)); }); });
     document.querySelectorAll('[data-edit-subunit-btn]').forEach(function (r) { r.addEventListener('click', function () { subUnitFormModal(APP.subUnits.filter(function (s) { return s.id === r.getAttribute('data-edit-subunit-btn'); })[0]); }); });
     document.querySelectorAll('[data-del-subunit-btn]').forEach(function (r) { r.addEventListener('click', function () { deleteSubUnit_(r.getAttribute('data-del-subunit-btn')); }); });
     document.querySelectorAll('[data-edit-employee-btn]').forEach(function (r) { r.addEventListener('click', function () { employeeFormModal(APP.employees.filter(function (e) { return e.id === r.getAttribute('data-edit-employee-btn'); })[0]); }); });
@@ -2177,6 +2284,7 @@
       '<label class="check-label"><input type="checkbox" id="histFilterAM" ' + (historyShowAM ? 'checked' : '') + '> AM PARADE</label>' +
       '<label class="check-label"><input type="checkbox" id="histFilterPM" ' + (historyShowPM ? 'checked' : '') + '> PM PARADE</label>' +
       '<label class="check-label"><input type="checkbox" id="histFilterStayIn" ' + (historyShowStayIn ? 'checked' : '') + '> STAY-IN</label></div>';
+    html += '<button class="btn ghost full" id="btnHistoryExportJson" style="margin-bottom:12px;">EXPORT (currently filtered) AS JSON</button>';
     html += '<div id="historyResults">' + historyResultsHtml_() + '</div>';
     return html;
   }
@@ -2196,6 +2304,9 @@
     });
   }
   function bindHistoryEvents() {
+    var exportJsonBtn = document.getElementById('btnHistoryExportJson');
+    if (exportJsonBtn) exportJsonBtn.addEventListener('click', openHistoryExportJsonModal_);
+
     var dateInput = document.getElementById('historyDateFilter');
     if (dateInput) dateInput.addEventListener('change', function () {
       // Targeted update only — re-rendering the whole page here would destroy
@@ -2239,6 +2350,7 @@
   function historyViewGroupsHtml() {
     var groups = [];
     historyViewPeople.forEach(function (p) { if (p.subUnit && groups.indexOf(p.subUnit) === -1) groups.push(p.subUnit); });
+    groups = sortGroupNamesBySubUnitOrder_(groups);
     var html = '', any = false;
     groups.forEach(function (g) {
       if (historyViewSubFilter !== 'ALL' && g !== historyViewSubFilter) return;
