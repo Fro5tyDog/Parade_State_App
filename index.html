@@ -2105,7 +2105,13 @@
         var Updater = window.Capacitor.Plugins.CapacitorUpdater;
         var AppPlugin = window.Capacitor.Plugins.App;
         var Preferences = window.Capacitor.Plugins.Preferences;
-        var UPDATE_MANIFEST_URL = './update-manifest.json'; // hosted at the same place as index.html
+        // IMPORTANT: this must be an absolute URL, not a relative one. The app's web
+        // content is bundled locally inside the APK/IPA, so a relative path like
+        // './update-manifest.json' would resolve against that local bundle and just
+        // re-read the stale, build-time copy forever — never seeing real updates.
+        // Point this at wherever you actually host update-manifest.json (e.g. your
+        // GitHub Pages repo root), and update it if that URL ever changes.
+        var UPDATE_MANIFEST_URL = 'https://fro5tydog.github.io/Parade_State_App/update-manifest.json';
         var VERSION_KEY = 'ota_current_version';
         var pendingUpdate = null;
 

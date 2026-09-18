@@ -53,7 +53,8 @@ Now create a `www` folder in your project root and copy these files into it:
 - `icon-512.png`
 
 (Leave `service-worker.js` out of `www` — it's for the browser/GitHub Pages
-version specifically and isn't needed inside the native shell.)
+version specifically and isn't needed inside the native shell. Leave
+`update-manifest.json` out too — see why in the next section.)
 
 Then add the native platforms:
 
@@ -64,17 +65,36 @@ npx cap add ios
 
 (Skip `npx cap add ios` if you're not doing iOS right now.)
 
-## 2. The update-check code is already in index.html
+## 2. The update-check code is already in index.html — one thing to set
 
 Open `index.html` and search for `CAPACITOR OTA UPDATE CHECK` — you'll find a
 block near the bottom, inside the same `DOMContentLoaded` handler as
 everything else. It's guarded by `if (window.Capacitor...)`, so it does
 nothing at all when this same file is opened as a plain webpage or installed
-as the PWA — it only activates inside the native app. You don't need to
-change this code, just know it's there and what it does:
+as the PWA — it only activates inside the native app.
 
-- Every time the app comes to the foreground, it fetches
-  `update-manifest.json` (hosted at the same place as `index.html`)
+**Before your first build**, check the `UPDATE_MANIFEST_URL` line right
+above the `checkForUpdate` function and make sure it's your actual GitHub
+Pages URL — it needs to be a full `https://...` address, not a relative
+path. This matters more than it looks: the app's web content is bundled
+*locally* inside the APK/IPA, so a relative path would resolve against that
+local copy and just read back whatever was bundled at build time, forever —
+never actually reaching the internet to check for something newer. An
+absolute URL is what makes this a live check instead of reading its own
+tail.
+
+This is also why `update-manifest.json` doesn't go in `www/`: anything in
+`www/` gets bundled into the app and becomes a fixed, unchanging snapshot
+from that point on. `update-manifest.json` needs to be the opposite — a
+file that stays live and editable on the internet, so you can change what
+it says *after* the app is already installed on someone's phone. Put it at
+the root of your GitHub Pages repo instead (alongside wherever `index.html`
+is hosted for the browser/PWA version), so it's reachable at a fixed URL
+that never changes even as its contents do.
+
+What the code does, once that URL is right:
+- Every time the app comes to the foreground, it fetches that live
+  `update-manifest.json`
 - If the manifest's version doesn't match what's currently installed, it
   downloads the new bundle quietly in the background
 - The moment the app is backgrounded (switched away from), it applies the
@@ -111,13 +131,27 @@ whichever device you ran it on.
 ## 4. Shipping an update, going forward
 
 This is the part that replaces "push to GitHub, get a new APK" — from here
-on, most updates never need a new APK/IPA build at all:
+on, most updates never need a new APK/IPA build at all.
+
+**There's no auto-incrementing version anywhere in this** — the version
+number is just a value you choose and write into `update-manifest.json`
+yourself each time. The app has no idea what "the next version" is; it only
+ever compares "what does the live manifest say" against "what did I last
+apply," so bumping that number is what actually triggers an update at all.
+Forget to change it, and the app checks, sees the same version it already
+has, and does nothing — which is correct behavior, not a bug, but worth
+knowing so a forgotten bump doesn't look like a broken update system.
 
 1. Make your changes to `index.html` (same as always).
-2. Bump the version number somewhere you'll remember it (e.g. in a comment
-   at the top of the file) — say, to `1.0.1`.
-3. Zip up the `www` folder's contents (`index.html`, `manifest.json`, the
-   icons) into `bundle-1.0.1.zip`.
+2. Decide on a new version number — anything goes as long as it's different
+   from last time, e.g. `1.0.1`. Nothing has to match anywhere else; it's
+   purely a label you and the app agree on via the manifest.
+3. Zip up the updated file(s) into `bundle-1.0.1.zip`. `index.html` is the
+   only one that actually needs to be in there — it's the whole app (all the
+   CSS and JS are inlined in that one file). `manifest.json` and the icons
+   are read by browsers for "Add to Home Screen," not by the native app
+   itself, so there's no need to include them in an update bundle unless
+   you've actually changed them.
 4. Host that zip somewhere reachable by URL — the same GitHub Pages repo
    you're already using works fine; a plain `/updates/` folder in that repo
    is enough.
