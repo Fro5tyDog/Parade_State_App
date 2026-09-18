@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app version 1.0.2 — squared filter buttons + mobile date-picker flash fix + OTA diagnostic logging -->
+<!-- app version 1.0.3 — explicit SAVE ALL for roster tabs + error visibility on every roster write -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -1447,6 +1447,7 @@
     }).join('') + '</div>';
 
     if (dataSubTab === 'subunits') {
+      html += '<button class="btn full savebtn" data-save-roster="subUnits" style="margin-bottom:10px;">SAVE ALL SUB-UNITS</button>';
       html += '<button class="btn full ghost" id="btnAddSubUnit" style="margin-bottom:10px;">+ ADD SUB-UNIT</button>';
       html += APP.subUnits.map(function (s) {
         var count = APP.employees.filter(function (e) { return e.subUnit === s.name; }).length;
@@ -1455,6 +1456,7 @@
           '<button class="btn small danger" data-del-subunit-btn="' + esc(s.id) + '">DELETE</button></div></div>';
       }).join('') || '<div class="empty-hint">No sub-units yet.</div>';
     } else if (dataSubTab === 'employees') {
+      html += '<button class="btn full savebtn" data-save-roster="employees" style="margin-bottom:10px;">SAVE ALL EMPLOYEES</button>';
       html += '<div class="field-row-2" style="margin-bottom:10px;">' +
         '<button class="btn ghost" id="btnAddEmployee" style="flex:1;">+ ADD EMPLOYEE</button>' +
         '<button class="btn ghost" id="btnBulkAddEmployee" style="flex:1;">BULK ADD</button></div>';
@@ -1466,6 +1468,7 @@
           '<button class="btn small danger" data-del-employee-btn="' + esc(e.id) + '">DELETE</button></div></div>';
       }).join('') || '<div class="empty-hint">No employees yet.</div>';
     } else if (dataSubTab === 'superiors') {
+      html += '<button class="btn full savebtn" data-save-roster="superiors" style="margin-bottom:10px;">SAVE ALL SUPERIORS</button>';
       html += '<div class="field-row-2" style="margin-bottom:10px;">' +
         '<button class="btn ghost" id="btnAddSuperior" style="flex:1;">+ ADD SUPERIOR</button>' +
         '<button class="btn ghost" id="btnBulkAddSuperior" style="flex:1;">BULK ADD</button></div>';
@@ -1669,16 +1672,30 @@
       var name = document.getElementById('subUnitName').value.trim();
       if (!name) { showToast('Enter a name.'); return; }
       var rec = existing ? Object.assign({}, existing, { name: name }) : { id: uid_(), name: name };
-      await idbBulkPut('subUnits', [rec]);
-      APP.subUnits = await idbGetAll('subUnits');
-      closeDataModal();
+      try {
+        await idbBulkPut('subUnits', [rec]);
+        APP.subUnits = await idbGetAll('subUnits');
+        console.log('[Data] Sub-unit saved:', JSON.stringify(rec));
+        showToast('Sub-unit saved.');
+        closeDataModal();
+      } catch (err) {
+        console.log('[Data] Sub-unit save FAILED:', err);
+        showToast('Save failed — ' + (err && err.message ? err.message : 'see Logcat/Console.'));
+      }
     });
   }
   async function deleteSubUnit_(id) {
     if (!confirm('Delete this sub-unit?')) return;
-    await idbDelete('subUnits', id);
-    APP.subUnits = await idbGetAll('subUnits');
-    render();
+    try {
+      await idbDelete('subUnits', id);
+      APP.subUnits = await idbGetAll('subUnits');
+      console.log('[Data] Sub-unit deleted:', id);
+      showToast('Sub-unit deleted.');
+      render();
+    } catch (err) {
+      console.log('[Data] Sub-unit delete FAILED:', err);
+      showToast('Delete failed — ' + (err && err.message ? err.message : 'see Logcat/Console.'));
+    }
   }
   function employeeFormModal(existing) {
     var html = '<div class="modal-overlay" id="modalOverlay"><div class="modal-sheet">' +
@@ -1709,16 +1726,30 @@
         isExcluded: document.getElementById('empIsExcluded').checked,
         isORD: document.getElementById('empIsORD').checked
       };
-      await idbBulkPut('employees', [rec]);
-      APP.employees = await idbGetAll('employees');
-      closeDataModal();
+      try {
+        await idbBulkPut('employees', [rec]);
+        APP.employees = await idbGetAll('employees');
+        console.log('[Data] Employee saved:', JSON.stringify(rec));
+        showToast('Employee saved.');
+        closeDataModal();
+      } catch (err) {
+        console.log('[Data] Employee save FAILED:', err);
+        showToast('Save failed — ' + (err && err.message ? err.message : 'see Logcat/Console.'));
+      }
     });
   }
   async function deleteEmployee_(id) {
     if (!confirm('Delete this employee?')) return;
-    await idbDelete('employees', id);
-    APP.employees = await idbGetAll('employees');
-    render();
+    try {
+      await idbDelete('employees', id);
+      APP.employees = await idbGetAll('employees');
+      console.log('[Data] Employee deleted:', id);
+      showToast('Employee deleted.');
+      render();
+    } catch (err) {
+      console.log('[Data] Employee delete FAILED:', err);
+      showToast('Delete failed — ' + (err && err.message ? err.message : 'see Logcat/Console.'));
+    }
   }
   function superiorFormModal(existing) {
     var html = '<div class="modal-overlay" id="modalOverlay"><div class="modal-sheet">' +
@@ -1737,18 +1768,50 @@
       var name = document.getElementById('supName').value.trim();
       if (!name) { showToast('Enter a name.'); return; }
       var rec = { id: existing ? existing.id : uid_(), rank: document.getElementById('supRank').value, name: name, subUnit: document.getElementById('supSubUnit').value, isCDO: document.getElementById('supIsCDO').checked };
-      await idbBulkPut('superiors', [rec]);
-      APP.superiors = await idbGetAll('superiors');
-      closeDataModal();
+      try {
+        await idbBulkPut('superiors', [rec]);
+        APP.superiors = await idbGetAll('superiors');
+        console.log('[Data] Superior saved:', JSON.stringify(rec));
+        showToast('Superior saved.');
+        closeDataModal();
+      } catch (err) {
+        console.log('[Data] Superior save FAILED:', err);
+        showToast('Save failed — ' + (err && err.message ? err.message : 'see Logcat/Console.'));
+      }
     });
   }
   async function deleteSuperior_(id) {
     if (!confirm('Delete this superior?')) return;
-    await idbDelete('superiors', id);
-    APP.superiors = await idbGetAll('superiors');
-    render();
+    try {
+      await idbDelete('superiors', id);
+      APP.superiors = await idbGetAll('superiors');
+      console.log('[Data] Superior deleted:', id);
+      showToast('Superior deleted.');
+      render();
+    } catch (err) {
+      console.log('[Data] Superior delete FAILED:', err);
+      showToast('Delete failed — ' + (err && err.message ? err.message : 'see Logcat/Console.'));
+    }
   }
   function closeDataModal() { document.getElementById('modalRoot').innerHTML = ''; render(); }
+
+  /** Explicit SAVE ALL for the roster tabs — re-writes every record currently
+   *  in memory back to IndexedDB. Individual add/edit/delete actions already
+   *  write immediately on their own, but this exists as a deliberate,
+   *  visible confirmation point, and doubles as a retry if an earlier
+   *  individual write ever failed silently. */
+  async function saveRosterData_(kind) {
+    var storeName = kind; // 'subUnits' | 'employees' | 'superiors' — matches both the APP key and the IndexedDB store name
+    var records = APP[storeName];
+    try {
+      await idbBulkPut(storeName, records);
+      console.log('[Data] Saved all ' + storeName + ' (' + records.length + ' record(s)).');
+      showToast('Saved ' + records.length + ' ' + storeName + '.');
+    } catch (err) {
+      console.log('[Data] Save all ' + storeName + ' FAILED:', err);
+      showToast('Save failed — ' + (err && err.message ? err.message : 'see Logcat/Console.'));
+    }
+  }
 
   // ---------- Bulk add ----------
   function subUnitOptions(selected) {
@@ -1837,6 +1900,8 @@
         render();
       });
     });
+    var saveRosterBtn = document.querySelector('[data-save-roster]');
+    if (saveRosterBtn) saveRosterBtn.addEventListener('click', function () { saveRosterData_(saveRosterBtn.getAttribute('data-save-roster')); });
     var addSU = document.getElementById('btnAddSubUnit'); if (addSU) addSU.addEventListener('click', function () { subUnitFormModal(null); });
     var addE = document.getElementById('btnAddEmployee'); if (addE) addE.addEventListener('click', function () { employeeFormModal(null); });
     var addS = document.getElementById('btnAddSuperior'); if (addS) addS.addEventListener('click', function () { superiorFormModal(null); });
