@@ -1,0 +1,13 @@
+{
+  "appId": "com.SIB7.paradestate",
+  "appName": "Parade State",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "CapacitorUpdater": {
+      "autoUpdate": "off"
+    }
+  }
+}
