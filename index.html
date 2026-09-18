@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app version 1.0.3 — explicit SAVE ALL for roster tabs + error visibility on every roster write -->
+<!-- app version 1.0.5 — master.json export/import for roster & setup data + friendlier OTA toast wording -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -1439,10 +1439,14 @@
 
   // ================= DATA TAB — roster CRUD =================
   function updateDataHtml() {
+    var html = '<div class="field-row-2" style="margin-bottom:12px;">' +
+      '<button class="btn ghost" id="btnMasterExport" style="flex:1;">EXPORT master.json</button>' +
+      '<button class="btn ghost" id="btnMasterImport" style="flex:1;">IMPORT master.json</button></div>';
+
     var tabs = [['subunits', 'SUB-UNITS'], ['employees', 'EMPLOYEES'], ['superiors', 'SUPERIORS'],
       ['company', 'COMPANY'], ['time', 'TIME'],
       ['mc', 'MC'], ['leaves', 'LEAVES'], ['ma', 'MA'], ['offs', 'OFFS'], ['others', 'OTHERS']];
-    var html = '<div class="chiprow">' + tabs.map(function (t) {
+    html += '<div class="chiprow">' + tabs.map(function (t) {
       return '<button class="chip ' + (dataSubTab === t[0] ? 'active' : '') + '" data-datatab="' + t[0] + '">' + t[1] + '</button>';
     }).join('') + '</div>';
 
@@ -1813,6 +1817,144 @@
     }
   }
 
+  // ---------- master.json export / import ----------
+  // Covers roster + configuration data — sub-units, employees, superiors, the
+  // 5 absence-record categories, company name, and time presets — so someone
+  // else can bootstrap their own install with the same setup instead of
+  // re-entering everyone by hand. Deliberately does NOT include day-to-day
+  // attendance, daily CDS/CDO/time picks, or saved parade history — those are
+  // this device's own operational log, not shared setup data.
+  function buildMasterExportJson_() {
+    var payload = {
+      exportedAt: new Date().toISOString(),
+      appVersion: '1.0.5',
+      subUnits: APP.subUnits,
+      employees: APP.employees,
+      superiors: APP.superiors,
+      mcRecords: APP.mcRecords,
+      leaveRecords: APP.leaveRecords,
+      maRecords: APP.maRecords,
+      offRecords: APP.offRecords,
+      otherRecords: APP.otherRecords,
+      companyName: APP.companyName,
+      timePresets: APP.timePresets
+    };
+    return JSON.stringify(payload, null, 2);
+  }
+  function openMasterExportModal_() {
+    var text = buildMasterExportJson_();
+    var html = '<div class="modal-overlay" id="modalOverlay"><div class="modal-sheet">' +
+      '<h3>Export master.json</h3><div class="sub">Covers roster &amp; setup data only — not today\'s attendance or saved history. Copy this, or download it as a file, and send it however you like.</div>' +
+      '<textarea class="export-textarea" id="masterExportTextarea" readonly>' + esc(text) + '</textarea>' +
+      '<button class="btn full" id="copyMasterExportBtn" style="margin:10px 0 8px;">COPY TO CLIPBOARD</button>' +
+      '<button class="btn ghost full" id="downloadMasterExportBtn" style="margin-bottom:8px;">DOWNLOAD master.json</button>' +
+      '<button class="modal-close" id="modalClose">CLOSE</button></div></div>';
+    document.getElementById('modalRoot').innerHTML = html;
+    var ta = document.getElementById('masterExportTextarea');
+    ta.addEventListener('click', function () { ta.select(); });
+    document.getElementById('modalOverlay').addEventListener('click', function (ev) { if (ev.target.id === 'modalOverlay') closeModal(); });
+    document.getElementById('modalClose').addEventListener('click', closeModal);
+    document.getElementById('copyMasterExportBtn').addEventListener('click', function () {
+      ta.select();
+      try { navigator.clipboard.writeText(text); showToast('Copied.'); } catch (err) { document.execCommand('copy'); showToast('Copied.'); }
+    });
+    document.getElementById('downloadMasterExportBtn').addEventListener('click', function () {
+      try {
+        var blob = new Blob([text], { type: 'application/json' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = 'master.json';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Downloading master.json...');
+      } catch (err) {
+        console.log('[Data] master.json download failed:', err);
+        showToast('Download not available here — use COPY instead.');
+      }
+    });
+  }
+
+  function openMasterImportModal_() {
+    var html = '<div class="modal-overlay" id="modalOverlay"><div class="modal-sheet">' +
+      '<h3>Import master.json</h3>' +
+      '<div class="sub">This REPLACES your current sub-units, employees, superiors, absence records, company name, and time presets. Today\'s attendance and saved history are not affected.</div>' +
+      '<div class="field-row"><label>Choose a file</label><input type="file" id="masterImportFile" accept="application/json,.json"></div>' +
+      '<div class="field-row"><label>...or paste it directly</label><textarea class="export-textarea" id="masterImportTextarea" placeholder="Paste master.json contents here" style="min-height:160px;"></textarea></div>' +
+      '<button class="btn full danger" id="masterImportBtn" style="margin-bottom:8px;">IMPORT (REPLACES CURRENT DATA)</button>' +
+      '<button class="modal-close" id="modalClose">CANCEL</button></div></div>';
+    document.getElementById('modalRoot').innerHTML = html;
+    document.getElementById('modalOverlay').addEventListener('click', function (ev) { if (ev.target.id === 'modalOverlay') closeModal(); });
+    document.getElementById('modalClose').addEventListener('click', closeModal);
+
+    var fileInput = document.getElementById('masterImportFile');
+    var textarea = document.getElementById('masterImportTextarea');
+    fileInput.addEventListener('change', function () {
+      var file = fileInput.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () { textarea.value = reader.result; };
+      reader.onerror = function () { showToast('Could not read that file.'); };
+      reader.readAsText(file);
+    });
+
+    document.getElementById('masterImportBtn').addEventListener('click', function () {
+      var text = (textarea.value || '').trim();
+      if (!text) { showToast('Choose a file or paste master.json contents first.'); return; }
+      if (!confirm('This replaces your current sub-units, employees, superiors, absence records, company name, and time presets. This cannot be undone. Continue?')) return;
+      applyMasterImport_(text);
+    });
+  }
+
+  async function applyMasterImport_(text) {
+    var data;
+    try {
+      data = JSON.parse(text);
+    } catch (err) {
+      showToast('That doesn\'t look like valid JSON.');
+      return;
+    }
+    if (!data || typeof data !== 'object') { showToast('Invalid master.json — no data found.'); return; }
+
+    var subUnits = Array.isArray(data.subUnits) ? data.subUnits : [];
+    var employees = Array.isArray(data.employees) ? data.employees : [];
+    var superiors = Array.isArray(data.superiors) ? data.superiors : [];
+    var mcRecords = Array.isArray(data.mcRecords) ? data.mcRecords : [];
+    var leaveRecords = Array.isArray(data.leaveRecords) ? data.leaveRecords : [];
+    var maRecords = Array.isArray(data.maRecords) ? data.maRecords : [];
+    var offRecords = Array.isArray(data.offRecords) ? data.offRecords : [];
+    var otherRecords = Array.isArray(data.otherRecords) ? data.otherRecords : [];
+    var companyName = typeof data.companyName === 'string' ? data.companyName : '';
+    var timePresets = Array.isArray(data.timePresets) ? data.timePresets : [];
+    var allAbsenceRecords = mcRecords.concat(leaveRecords, maRecords, offRecords, otherRecords);
+
+    try {
+      await idbClear('subUnits'); await idbBulkPut('subUnits', subUnits);
+      await idbClear('employees'); await idbBulkPut('employees', employees);
+      await idbClear('superiors'); await idbBulkPut('superiors', superiors);
+      await idbClear('absenceRecords'); await idbBulkPut('absenceRecords', allAbsenceRecords);
+      await idbClear('timePresets'); await idbBulkPut('timePresets', timePresets);
+      await idbBulkPut('settings', [{ key: 'companyName', value: companyName }]);
+
+      APP.subUnits = subUnits;
+      APP.employees = employees;
+      APP.superiors = superiors;
+      APP.mcRecords = mcRecords;
+      APP.leaveRecords = leaveRecords;
+      APP.maRecords = maRecords;
+      APP.offRecords = offRecords;
+      APP.otherRecords = otherRecords;
+      APP.companyName = companyName;
+      APP.timePresets = timePresets;
+
+      console.log('[Data] master.json import applied:', subUnits.length, 'sub-units,', employees.length, 'employees,', superiors.length, 'superiors,', allAbsenceRecords.length, 'absence records.');
+      showToast('Import complete — ' + employees.length + ' employees, ' + subUnits.length + ' sub-units loaded.');
+      closeDataModal();
+    } catch (err) {
+      console.log('[Data] master.json import FAILED:', err);
+      showToast('Import failed — ' + (err && err.message ? err.message : 'see Logcat/Console.'));
+    }
+  }
+
   // ---------- Bulk add ----------
   function subUnitOptions(selected) {
     return APP.subUnits.map(function (su) {
@@ -1891,6 +2033,11 @@
   }
 
   function bindUpdateDataEvents() {
+    var exportBtn = document.getElementById('btnMasterExport');
+    if (exportBtn) exportBtn.addEventListener('click', openMasterExportModal_);
+    var importBtn = document.getElementById('btnMasterImport');
+    if (importBtn) importBtn.addEventListener('click', openMasterImportModal_);
+
     document.querySelectorAll('[data-datatab]').forEach(function (b) {
       b.addEventListener('click', function () {
         dataSubTab = b.getAttribute('data-datatab');
@@ -2205,7 +2352,11 @@
         var pendingUpdate = null;
 
         console.log('[OTA] Updater plugin detected — initializing.');
-        showToast('OTA updater active.');
+        (Preferences ? Preferences.get({ key: VERSION_KEY }) : Promise.resolve(null)).then(function (res) {
+          var current = (res && res.value) || '(none yet — first launch)';
+          console.log('[OTA] Current applied version at this boot:', current);
+          showToast('App version: ' + current);
+        });
 
         Updater.notifyAppReady()
           .then(function () { console.log('[OTA] notifyAppReady OK.'); })
@@ -2225,12 +2376,12 @@
                 var current = (res && res.value) || '0.0.0';
                 console.log('[OTA] Installed version:', current, '| Manifest version:', manifest.version);
                 if (manifest.version && manifest.version !== current) {
-                  showToast('Update found (v' + manifest.version + ') — downloading...');
+                  showToast('Downloading latest version (v' + manifest.version + ')...');
                   return Updater.download({ version: manifest.version, url: manifest.url })
                     .then(function (data) {
                       console.log('[OTA] Download OK:', JSON.stringify(data));
                       pendingUpdate = { data: data, version: manifest.version };
-                      showToast('v' + manifest.version + ' downloaded — will apply when app is backgrounded.');
+                      showToast('Latest version downloaded (v' + manifest.version + ') — will apply when app is backgrounded.');
                     })
                     .catch(function (err) {
                       console.log('[OTA] Download FAILED:', err);
@@ -2238,7 +2389,7 @@
                     });
                 } else {
                   console.log('[OTA] Already on latest version — nothing to do.');
-                  showToast('Already on latest version (' + current + ').');
+                  showToast('App fully up to date (v' + current + ').');
                 }
               });
             })
