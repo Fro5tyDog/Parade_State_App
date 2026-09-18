@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app version 1.0.2 — squared filter buttons + mobile date-picker flash fix -->
+<!-- app version 1.0.2 — squared filter buttons + mobile date-picker flash fix + OTA diagnostic logging -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -2121,7 +2121,9 @@
     // newer version than what's currently installed, downloads it quietly while the
     // app is in the foreground, and applies it the moment the app is backgrounded —
     // so it's never interrupting an active session, and the next time the app is
-    // opened it's already the new version.
+    // opened it's already the new version. Every step below shows a toast and logs
+    // to console — nothing fails silently, so if it's not working, what you see
+    // on screen (or in Logcat/Console via Android Studio/Xcode) says exactly why.
     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorUpdater) {
       (function () {
         var Updater = window.Capacitor.Plugins.CapacitorUpdater;
@@ -2137,43 +2139,87 @@
         var VERSION_KEY = 'ota_current_version';
         var pendingUpdate = null;
 
-        Updater.notifyAppReady().catch(function () {});
+        console.log('[OTA] Updater plugin detected — initializing.');
+        showToast('OTA updater active.');
+
+        Updater.notifyAppReady()
+          .then(function () { console.log('[OTA] notifyAppReady OK.'); })
+          .catch(function (err) { console.log('[OTA] notifyAppReady FAILED:', err); });
 
         function checkForUpdate() {
+          console.log('[OTA] Checking', UPDATE_MANIFEST_URL);
           fetch(UPDATE_MANIFEST_URL, { cache: 'no-store' })
-            .then(function (r) { return r.json(); })
+            .then(function (r) {
+              console.log('[OTA] Manifest fetch HTTP status:', r.status);
+              if (!r.ok) throw new Error('HTTP ' + r.status + ' fetching manifest');
+              return r.json();
+            })
             .then(function (manifest) {
+              console.log('[OTA] Manifest:', JSON.stringify(manifest));
               return (Preferences ? Preferences.get({ key: VERSION_KEY }) : Promise.resolve(null)).then(function (res) {
                 var current = (res && res.value) || '0.0.0';
+                console.log('[OTA] Installed version:', current, '| Manifest version:', manifest.version);
                 if (manifest.version && manifest.version !== current) {
-                  return Updater.download({ version: manifest.version, url: manifest.url }).then(function (data) {
-                    pendingUpdate = { data: data, version: manifest.version };
-                  });
+                  showToast('Update found (v' + manifest.version + ') — downloading...');
+                  return Updater.download({ version: manifest.version, url: manifest.url })
+                    .then(function (data) {
+                      console.log('[OTA] Download OK:', JSON.stringify(data));
+                      pendingUpdate = { data: data, version: manifest.version };
+                      showToast('v' + manifest.version + ' downloaded — will apply when app is backgrounded.');
+                    })
+                    .catch(function (err) {
+                      console.log('[OTA] Download FAILED:', err);
+                      showToast('Update download failed — see Logcat/Console.');
+                    });
+                } else {
+                  console.log('[OTA] Already on latest version — nothing to do.');
+                  showToast('Already on latest version (' + current + ').');
                 }
               });
             })
-            .catch(function () { /* offline or manifest unreachable — silently skip, retries on next foreground */ });
+            .catch(function (err) {
+              console.log('[OTA] Update check FAILED:', err);
+              showToast('Update check failed: ' + (err && err.message ? err.message : err));
+            });
         }
 
         if (AppPlugin) {
           AppPlugin.addListener('appStateChange', function (state) {
+            console.log('[OTA] appStateChange — isActive:', state.isActive);
             if (state.isActive) {
               checkForUpdate();
             } else if (pendingUpdate) {
               var toApply = pendingUpdate;
               pendingUpdate = null;
+              console.log('[OTA] Backgrounded with a pending update — applying', toApply.version);
               Updater.set(toApply.data)
-                .then(function () { return Preferences && Preferences.set({ key: VERSION_KEY, value: toApply.version }); })
-                .catch(function (err) { console.log('OTA update apply failed', err); });
+                .then(function () {
+                  console.log('[OTA] Applied. Now on version', toApply.version);
+                  return Preferences && Preferences.set({ key: VERSION_KEY, value: toApply.version });
+                })
+                .catch(function (err) { console.log('[OTA] Apply FAILED:', err); });
             }
           });
         }
 
         checkForUpdate(); // also check once right at cold start
       })();
+    } else {
+      // This branch firing means the updater never even starts — almost always
+      // a plugin-registration issue, not a network/manifest issue. Check exactly
+      // which piece is missing:
+      var hasCapacitor = !!window.Capacitor;
+      var hasPlugins = hasCapacitor && !!window.Capacitor.Plugins;
+      var hasUpdater = hasPlugins && !!window.Capacitor.Plugins.CapacitorUpdater;
+      console.log('[OTA] Updater NOT available — window.Capacitor:', hasCapacitor, '| .Plugins:', hasPlugins, '| .Plugins.CapacitorUpdater:', hasUpdater);
+      if (hasCapacitor) {
+        // Only show this one visibly — if window.Capacitor itself is missing this
+        // isn't even running inside Capacitor at all (e.g. a plain browser), which
+        // isn't worth alarming over.
+        showToast('OTA updater plugin not found — check Logcat/Console for [OTA] logs.');
+      }
     }
   });
 </script>
 </body>
 </html>
-
