@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app version 1.0.7 — single-tap reason menu, sub-unit reordering, roster/history sub-unit sort, history JSON export, reason bucket table update, OUT stat fix -->
+<!-- app version 1.0.8 (partial) — ASA/GD split into CURRENT/OUTGOING, full carry-forward redesign, absence records no longer deleted on manual removal (REFRESH pulls them back) -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -169,13 +169,22 @@
   // ================= CONFIG =================
   var DEFAULT_REASONS = [
     ['MC', 'MC'], ['AM MA', 'Out'], ['PM MA', 'Out'], ['OSL', 'Leave'], ['LL', 'Leave'],
-    ['OFF', 'Leave'], ['RSO', 'Out'], ['OOC', 'Out'], ['ASA', 'OnDuty'], ['GD', 'OnDuty'],
+    ['OFF', 'Leave'], ['RSO', 'Out'], ['OOC', 'Out'], ['ASA CURRENT', 'OnDuty'], ['ASA OUTGOING', 'OnDuty'],
+    ['GD CURRENT', 'OnDuty'], ['GD OUTGOING', 'OnDuty'],
     ['MEDIC DUTY', 'OnDuty'], ['MED COVER', 'OnDuty'], ['BR COHESION', 'Out'], ['LATE', 'Out'],
     ['SKILLSFUTURE', 'Out'], ['COURSE', 'Out'], ['BR WORK', 'Out'], ['PM LL', 'Leave'],
     ['AM LL', 'Leave'], ['AM OSL', 'Leave'], ['PM OSL', 'Leave'], ['OTHER', 'Out']
   ];
   var REASON_BUCKET = {};
   DEFAULT_REASONS.forEach(function (r) { REASON_BUCKET[r[0]] = r[1]; });
+  // Which sessions each of these two reasons is offered in — CURRENT is used
+  // while someone's still actively on duty into the evening (PM/Stay-in),
+  // OUTGOING specifically for AM, matching how carryForwardStayInToNextAm_
+  // and carryForwardAmToPm_ transform one into the other across sessions.
+  var SESSION_RESTRICTED_REASONS = {
+    'ASA CURRENT': ['PM', 'STAYIN'], 'GD CURRENT': ['PM', 'STAYIN'],
+    'ASA OUTGOING': ['AM'], 'GD OUTGOING': ['AM']
+  };
   var REASONS_WITH_DETAIL = {
     'MC': { type: 'dates' }, 'OSL': { type: 'dates' }, 'LL': { type: 'dates' },
     'OOC': { type: 'text', placeholder: 'Camp/Activity' },
@@ -445,7 +454,7 @@
     var allAttendance = await idbGetAll('attendance');
     APP.attendance = allAttendance.filter(function (r) { return r.date === dateIso; });
     var duty = await idbGet('dailyDuty', dateIso);
-    APP.dailyDuty = duty || { date: dateIso, cdsEmployeeId: '', cdoSuperiorId: '', stayInCdsEmployeeId: '' };
+    APP.dailyDuty = duty || { date: dateIso, amCdsEmployeeId: '', pmCdsEmployeeId: '', amCdoSuperiorId: '', pmCdoSuperiorId: '', stayInCdsEmployeeId: '' };
   }
 
   function showToast(msg) {
@@ -459,6 +468,11 @@
   // ================= CORE ATTENDANCE HELPERS =================
   function isActiveForParade_(e) { return !isTrue(e.isExcluded) && !isTrue(e.isORD); }
   function bucketForReasonLocal(reason) { return REASON_BUCKET[reason] || 'Out'; }
+  /** CDS/CDO are independent per session — picking one for AM never touches
+   *  PM's, and vice versa. These just resolve which dailyDuty field a given
+   *  session's picks actually live in. */
+  function cdsFieldFor_(sess) { return sess === 'AM' ? 'amCdsEmployeeId' : sess === 'PM' ? 'pmCdsEmployeeId' : 'stayInCdsEmployeeId'; }
+  function cdoFieldFor_(sess) { return sess === 'AM' ? 'amCdoSuperiorId' : 'pmCdoSuperiorId'; }
   function attFor(empId, sess) {
     var r = APP.attendance.filter(function (a) { return a.empId === empId && a.session === sess; })[0];
     return r || { empId: empId, session: sess, status: 'In', reason: '', bucket: 'In' };
@@ -479,6 +493,7 @@
     return c;
   }
   function reasonAvailableForSession_(reasonName) {
+    if (SESSION_RESTRICTED_REASONS.hasOwnProperty(reasonName)) return SESSION_RESTRICTED_REASONS[reasonName].indexOf(session) !== -1;
     if (reasonName.indexOf('AM ') === 0) return session === 'AM';
     if (reasonName.indexOf('PM ') === 0) return session === 'PM';
     return true;
@@ -652,9 +667,9 @@
     html += '<div class="chiprow">' + subChip('ALL', 'ALL SUB-UNITS') + APP.subUnits.map(function (s) { return subChip(s.name, s.name); }).join('') + '</div>';
 
     html += '<div class="selector-row"><label>CDS</label><select id="selCDS"><option value="">— select —</option>' +
-      cdsOptions.map(function (e) { return '<option value="' + esc(e.id) + '" ' + (APP.dailyDuty.cdsEmployeeId === e.id ? 'selected' : '') + '>' + esc(e.rank) + ' ' + esc(e.name) + '</option>'; }).join('') + '</select></div>';
+      cdsOptions.map(function (e) { return '<option value="' + esc(e.id) + '" ' + (APP.dailyDuty[cdsFieldFor_(session)] === e.id ? 'selected' : '') + '>' + esc(e.rank) + ' ' + esc(e.name) + '</option>'; }).join('') + '</select></div>';
     html += '<div class="selector-row"><label>CDO</label><select id="selCDO"><option value="">— select —</option>' +
-      cdoOptions.map(function (s) { return '<option value="' + esc(s.id) + '" ' + (APP.dailyDuty.cdoSuperiorId === s.id ? 'selected' : '') + '>' + esc(s.rank) + ' ' + esc(s.name) + '</option>'; }).join('') + '</select></div>';
+      cdoOptions.map(function (s) { return '<option value="' + esc(s.id) + '" ' + (APP.dailyDuty[cdoFieldFor_(session)] === s.id ? 'selected' : '') + '>' + esc(s.rank) + ' ' + esc(s.name) + '</option>'; }).join('') + '</select></div>';
 
     var currentTimeLabel = session === 'AM' ? (APP.dailyDuty.amTimeLabel || '0745HRS') : (APP.dailyDuty.pmTimeLabel || '1715HRS');
     html += '<div class="selector-row"><label>Time</label><input type="text" id="timeLabelInput" value="' + esc(currentTimeLabel) + '" placeholder="e.g. 0745HRS"></div>';
@@ -709,13 +724,10 @@
   function performMarkStatus_(empId, targetStatus) {
     applyAttendanceLocal({ empId: empId, session: session, status: targetStatus, reason: '', bucket: targetStatus });
     dirtyKeys.add(empId + '|' + session);
-    // Matches the original rules: a blank Out always syncs the absence record
-    // regardless of session, but a blank In only syncs from AM (PM staying
-    // silent here preserves whatever the person's AM absence record already
-    // said, in case they were legitimately absent that morning too).
-    if (targetStatus === 'Out' || (targetStatus === 'In' && session === 'AM')) {
-      syncAbsenceRecordForLocal_(empId, '', '', APP.date, 1);
-    }
+    // Deliberately does NOT touch the underlying absence record here — marking
+    // someone back to a blank In/Out is a local override for this attendance
+    // type only, not a correction to what's declared in Data. The record
+    // stays put; hitting REFRESH re-applies it (see pullBackAbsenceRecords_).
     render();
   }
   function openMarkConfirmModal_(empId, targetStatus) {
@@ -914,9 +926,9 @@
     var counts = paradeCounts(sess);
     var activeEmployees = APP.employees.filter(function (e) { return isActiveForParade_(e) && (!isStayIn || isTrue(e.isStayIn)); });
     var total = activeEmployees.length;
-    var cdsId = isStayIn ? APP.dailyDuty.stayInCdsEmployeeId : APP.dailyDuty.cdsEmployeeId;
+    var cdsId = APP.dailyDuty[cdsFieldFor_(sess)];
     var cdsEmp = APP.employees.filter(function (e) { return e.id === cdsId; })[0];
-    var cdoSup = isStayIn ? null : APP.superiors.filter(function (s) { return s.id === APP.dailyDuty.cdoSuperiorId; })[0];
+    var cdoSup = isStayIn ? null : APP.superiors.filter(function (s) { return s.id === APP.dailyDuty[cdoFieldFor_(sess)]; })[0];
     var people = activeEmployees.map(function (e) {
       var a = attFor(e.id, sess);
       return { id: e.id, rank: e.rank, name: e.name, subUnit: e.subUnit, status: a.bucket === 'In' ? 'Present' : 'Absent', reason: a.reason || '', bucket: a.bucket };
@@ -969,11 +981,53 @@
     APP.subUnits = await idbGetAll('subUnits');
     APP.employees = await idbGetAll('employees');
     APP.superiors = await idbGetAll('superiors');
-    if (mainTab === 'stayin') stayInLastRefreshed = new Date(); else lastRefreshed = new Date();
+    var pulled = 0;
+    if (mainTab === 'stayin') {
+      pulled = pullBackAbsenceRecords_('STAYIN');
+      runAutoFillPass_();
+      stayInLastRefreshed = new Date();
+    } else {
+      pulled += pullBackAbsenceRecords_('AM');
+      pulled += pullBackAbsenceRecords_('PM');
+      lastRefreshed = new Date();
+    }
+    if (pulled) showToast('Pulled back ' + pulled + ' record(s) from Data.');
     render();
   }
 
   // ================= CARRY-FORWARD / AUTO-FILL =================
+  /** REFRESH's "pull back" — since deliberately marking someone In/Out no
+   *  longer deletes their underlying absence record (see performMarkStatus_),
+   *  this is what brings it back: for AM/PM, re-applies any absence record
+   *  covering today whose reason doesn't already match what's showing. For
+   *  Stay-in, simply clears its current entries and lets runAutoFillPass_'s
+   *  usual Stay-in rules (multi-day continuation, next-day starts, same-day
+   *  PM reference) recompute them fresh. */
+  function pullBackAbsenceRecords_(sessForRefresh) {
+    var pulled = 0;
+    if (sessForRefresh === 'STAYIN') {
+      APP.employees.forEach(function (emp) {
+        if (!isTrue(emp.isStayIn)) return;
+        var idx = APP.attendance.findIndex(function (r) { return r.empId === emp.id && r.session === 'STAYIN'; });
+        if (idx >= 0) { APP.attendance.splice(idx, 1); pulled++; }
+      });
+    } else {
+      Object.keys(REASON_CATEGORIES).forEach(function (catKey) {
+        var listKey = REASON_CATEGORIES[catKey].listKey;
+        (APP[listKey] || []).forEach(function (rec) {
+          if (!coversDate_(rec, APP.date)) return;
+          if (reasonSessionsFor_(rec.reasonName).indexOf(sessForRefresh) === -1) return;
+          var bucket = bucketForReasonLocal(baseReasonNameOf_(rec.reason) || rec.reason);
+          var current = attFor(rec.employeeId, sessForRefresh);
+          if (current.reason === rec.reason && current.bucket === bucket) return;
+          applyAttendanceLocal({ empId: rec.employeeId, session: sessForRefresh, status: bucket === 'In' ? 'In' : 'Out', reason: rec.reason, bucket: bucket });
+          dirtyKeys.add(rec.employeeId + '|' + sessForRefresh);
+          pulled++;
+        });
+      });
+    }
+    return pulled;
+  }
   function autoFillActiveLeaves_() {
     var todayStr = APP.date;
     var filled = 0;
@@ -1000,16 +1054,40 @@
     });
     return filled;
   }
+  /** [STAY-IN] "removed" rule: if a leave that was continuing onto Stay-in
+   *  (via autoFillActiveLeaves_'s multi-day check) actually ENDS today, the
+   *  specific leave text is cleared — they're marked as a plain Out instead,
+   *  since the declared leave doesn't cover tonight specifically. */
+  function clearEndingLeavesForStayIn_() {
+    var cleared = 0;
+    APP.employees.forEach(function (emp) {
+      if (!isActiveForParade_(emp) || !isTrue(emp.isStayIn)) return;
+      var rec = APP.attendance.filter(function (r) { return r.empId === emp.id && r.session === 'STAYIN'; })[0];
+      if (!rec || !rec.reason) return;
+      var baseName = baseReasonNameOf_(rec.reason);
+      if (REASON_CATEGORY_OF_NAME[baseName] !== 'leaves') return;
+      var parsed = parseAnyMultiDayReason_(rec.reason);
+      if (parsed && parsed.endDate === APP.date) {
+        applyAttendanceLocal({ empId: emp.id, session: 'STAYIN', status: 'Out', reason: '', bucket: 'Out' });
+        dirtyKeys.add(emp.id + '|STAYIN');
+        cleared++;
+      }
+    });
+    return cleared;
+  }
+  /** [PM] AM -> PM. GD OUTGOING/ASA OUTGOING, AM MA, AM LL, and RSO all
+   *  become a plain Out rather than carrying their specific text — everything
+   *  else (including AM OSL now) carries verbatim. */
   function carryForwardAmToPm_() {
     var filled = 0;
-    var AM_ONLY = ['AM MA', 'AM LL', 'AM OSL'];
+    var BLANK_ON_CARRY = ['AM MA', 'AM LL', 'RSO', 'GD OUTGOING', 'ASA OUTGOING'];
     APP.employees.forEach(function (emp) {
       if (!isActiveForParade_(emp)) return;
       var amRec = APP.attendance.filter(function (r) { return r.empId === emp.id && r.session === 'AM'; })[0];
       if (!amRec || amRec.bucket === 'In') return;
       var hasPM = APP.attendance.filter(function (r) { return r.empId === emp.id && r.session === 'PM'; }).length > 0;
       if (hasPM) return;
-      if (AM_ONLY.indexOf(amRec.reason) !== -1) {
+      if (BLANK_ON_CARRY.indexOf(amRec.reason) !== -1) {
         applyAttendanceLocal({ empId: emp.id, session: 'PM', status: 'Out', reason: '', bucket: 'Out' });
       } else {
         applyAttendanceLocal({ empId: emp.id, session: 'PM', status: 'Out', reason: amRec.reason, bucket: amRec.bucket });
@@ -1019,78 +1097,67 @@
     });
     return filled;
   }
-  /** PM Parade State -> that same day's Stay-in Strength. Carries MC and
-   *  anything in the 'others' category (GD, ASA, RSO, OOC, MEDIC DUTY, MED
-   *  COVER, BR COHESION, LATE, SKILLSFUTURE, COURSE, BR WORK, OTHER) — not
-   *  OSL/LL/OFF/MA, which stay PM-only. */
+  /** [STAY-IN] Same-day PM -> Stay-in. Only GD CURRENT/ASA CURRENT carry
+   *  their specific text; any other out-type PM reason becomes a plain Out —
+   *  this is the lowest-priority, catch-all rule, meant to run after the
+   *  more specific Stay-in rules (multi-day continuation, next-day starts)
+   *  have already had a chance to claim the slot. */
   function carryForwardPmToStayIn_() {
     var filled = 0;
+    var SPECIFIC_CARRY = ['GD CURRENT', 'ASA CURRENT'];
     APP.employees.forEach(function (emp) {
       if (!isActiveForParade_(emp) || !isTrue(emp.isStayIn)) return;
-      var pmRec = APP.attendance.filter(function (r) { return r.empId === emp.id && r.session === 'PM'; })[0];
-      if (!pmRec || pmRec.bucket === 'In') return;
-      var baseName = baseReasonNameOf_(pmRec.reason);
-      var shouldCarry = baseName === 'MC' || REASON_CATEGORY_OF_NAME[baseName] === 'others';
-      if (!shouldCarry) return;
       var hasExisting = APP.attendance.filter(function (r) { return r.empId === emp.id && r.session === 'STAYIN'; }).length > 0;
       if (hasExisting) return;
-      applyAttendanceLocal({ empId: emp.id, session: 'STAYIN', status: 'Out', reason: pmRec.reason, bucket: pmRec.bucket });
+      var pmRec = APP.attendance.filter(function (r) { return r.empId === emp.id && r.session === 'PM'; })[0];
+      if (!pmRec || pmRec.bucket === 'In') return;
+      if (SPECIFIC_CARRY.indexOf(pmRec.reason) !== -1) {
+        applyAttendanceLocal({ empId: emp.id, session: 'STAYIN', status: 'Out', reason: pmRec.reason, bucket: pmRec.bucket });
+      } else {
+        applyAttendanceLocal({ empId: emp.id, session: 'STAYIN', status: 'Out', reason: '', bucket: 'Out' });
+      }
       dirtyKeys.add(emp.id + '|STAYIN');
       filled++;
     });
     return filled;
   }
-  /** Yesterday's saved Stay-in Strength -> today's AM. Only carries 'others'
-   *  category reasons (GD, ASA, RSO, OOC, MEDIC DUTY, MED COVER, BR COHESION,
-   *  LATE, SKILLSFUTURE, COURSE, BR WORK, OTHER) — MC continuing into today is
-   *  handled separately by autoFillActiveLeaves_ (multi-day MC/OSL/LL from
-   *  history), and OSL/LL/OFF continuing or starting today by the absence-
-   *  records sync (applyLocalAbsenceRecordsToToday_). Keeping those on their
-   *  own mechanisms avoids this rule double-applying or conflicting with them. */
+  /** [AM] Yesterday's Stay-in -> today's AM. GD CURRENT/ASA CURRENT from last
+   *  night's Stay-in become GD OUTGOING/ASA OUTGOING respectively — a name
+   *  transform, not a verbatim carry. Nothing else carries via this rule. */
   function carryForwardStayInAbsencesToNextAm_() {
     var filled = 0;
+    var TRANSFORM = { 'GD CURRENT': 'GD OUTGOING', 'ASA CURRENT': 'ASA OUTGOING' };
     var yesterday = previousDayIso_(APP.date);
     var stayInRecord = historyList.filter(function (h) { return h.date === yesterday && h.session === 'STAYIN'; })[0];
     if (!stayInRecord) return 0;
     var people = (stayInRecord.snapshot && stayInRecord.snapshot.people) || [];
     people.forEach(function (p) {
-      if (p.bucket === 'In') return;
-      var baseName = baseReasonNameOf_(p.reason);
-      if (REASON_CATEGORY_OF_NAME[baseName] !== 'others') return;
+      if (p.bucket === 'In' || !TRANSFORM.hasOwnProperty(p.reason)) return;
       var emp = APP.employees.filter(function (e) { return e.id === p.id; })[0];
       if (!emp || !isActiveForParade_(emp)) return;
       var hasExisting = APP.attendance.filter(function (r) { return r.empId === p.id && r.session === 'AM'; }).length > 0;
       if (hasExisting) return;
-      applyAttendanceLocal({ empId: p.id, session: 'AM', status: 'Out', reason: p.reason, bucket: p.bucket });
+      var newReason = TRANSFORM[p.reason];
+      applyAttendanceLocal({ empId: p.id, session: 'AM', status: 'Out', reason: newReason, bucket: bucketForReasonLocal(newReason) });
       dirtyKeys.add(p.id + '|AM');
       filled++;
     });
     return filled;
   }
-  /** Anyone with an MC, OSL/LL, or OFF absence record covering TOMORROW (the
-   *  day after Stay-in Strength's own date) gets marked absent in TODAY'S
-   *  Stay-in Strength too — someone who knows they're on MC/leave/off
-   *  starting tomorrow has typically already left camp tonight rather than
-   *  staying in and leaving first thing in the morning. This is separate
-   *  from carryForwardStayInAbsencesToNextAm_ (which looks backward, from
-   *  yesterday's Stay-in into today's AM) — this looks forward, checking
-   *  what's coming up next against tonight's headcount. Only checks MC/
-   *  Leaves/Offs absence records — not MA or 'others', which are covered by
-   *  the same-day PM reference in carryForwardPmToStayIn_ instead. */
+  /** [STAY-IN] MC/OFF/Leave absence records covering TOMORROW also mark
+   *  tonight's Stay-in absent — someone who knows they're off/on leave/on MC
+   *  starting tomorrow has typically already left camp tonight. */
   function applyNextDayAbsencesToStayIn_() {
     var filled = 0;
     var tomorrow = nextDayIso_(APP.date);
-    var relevantCats = ['mc', 'leaves', 'offs', 'ma'];
+    var relevantCats = ['mc', 'leaves', 'offs'];
     APP.employees.forEach(function (emp) {
       if (!isActiveForParade_(emp) || !isTrue(emp.isStayIn)) return;
       var hasExisting = APP.attendance.filter(function (r) { return r.empId === emp.id && r.session === 'STAYIN'; }).length > 0;
       if (hasExisting) return;
       for (var ci = 0; ci < relevantCats.length; ci++) {
-        var catKey = relevantCats[ci];
-        var listKey = REASON_CATEGORIES[catKey].listKey;
-        var candidates = (APP[listKey] || []).filter(function (r) { return r.employeeId === emp.id && coversDate_(r, tomorrow); });
-        // 'ma' category covers both AM MA and PM MA — only AM MA carries into tonight's Stay-in
-        var match = catKey === 'ma' ? candidates.filter(function (r) { return baseReasonNameOf_(r.reason) === 'AM MA'; })[0] : candidates[0];
+        var listKey = REASON_CATEGORIES[relevantCats[ci]].listKey;
+        var match = (APP[listKey] || []).filter(function (r) { return r.employeeId === emp.id && coversDate_(r, tomorrow); })[0];
         if (match) {
           var bucket = bucketForReasonLocal(baseReasonNameOf_(match.reason) || match.reason);
           applyAttendanceLocal({ empId: emp.id, session: 'STAYIN', status: 'Out', reason: match.reason, bucket: bucket });
@@ -1158,12 +1225,14 @@
 
   function runAutoFillPass_() {
     var n1 = autoFillActiveLeaves_();
-    var n2 = carryForwardAmToPm_();
-    var n3 = carryForwardPmToStayIn_();
-    var n4 = carryForwardStayInAbsencesToNextAm_();
+    var n2 = clearEndingLeavesForStayIn_();
+    var n3 = carryForwardStayInAbsencesToNextAm_();
+    var n4 = carryForwardAmToPm_();
     var n5 = applyNextDayAbsencesToStayIn_();
+    var n6 = carryForwardPmToStayIn_();
     applyLocalAbsenceRecordsToToday_();
-    if (n1 || n2 || n3 || n4 || n5) showToast('Auto-marked ' + (n1 + n2 + n3 + n4 + n5) + ' record(s) — review before saving.');
+    var total = n1 + n2 + n3 + n4 + n5 + n6;
+    if (total) showToast('Auto-marked ' + total + ' record(s) — review before saving.');
   }
 
   // ================= CHANGE DATE (simplified — no conflict-typing guard, single-user local app) =================
@@ -1242,8 +1311,8 @@
 
     var exportBtn = document.getElementById('btnExport');
     if (exportBtn) exportBtn.addEventListener('click', function () {
-      var cdsEmp = APP.employees.filter(function (e) { return e.id === APP.dailyDuty.cdsEmployeeId; })[0];
-      var cdoSup = APP.superiors.filter(function (s) { return s.id === APP.dailyDuty.cdoSuperiorId; })[0];
+      var cdsEmp = APP.employees.filter(function (e) { return e.id === APP.dailyDuty[cdsFieldFor_(session)]; })[0];
+      var cdoSup = APP.superiors.filter(function (s) { return s.id === APP.dailyDuty[cdoFieldFor_(session)]; })[0];
       var people = APP.employees.filter(isActiveForParade_).map(function (e) {
         var a = attFor(e.id, session);
         return { rank: e.rank, name: e.name, subUnit: e.subUnit, status: a.status, reason: a.reason, bucket: a.bucket };
@@ -1253,9 +1322,9 @@
     });
 
     var selCDS = document.getElementById('selCDS');
-    if (selCDS) selCDS.addEventListener('change', function () { APP.dailyDuty.cdsEmployeeId = selCDS.value; dailyDutyDirty = true; render(); });
+    if (selCDS) selCDS.addEventListener('change', function () { APP.dailyDuty[cdsFieldFor_(session)] = selCDS.value; dailyDutyDirty = true; render(); });
     var selCDO = document.getElementById('selCDO');
-    if (selCDO) selCDO.addEventListener('change', function () { APP.dailyDuty.cdoSuperiorId = selCDO.value; dailyDutyDirty = true; render(); });
+    if (selCDO) selCDO.addEventListener('change', function () { APP.dailyDuty[cdoFieldFor_(session)] = selCDO.value; dailyDutyDirty = true; render(); });
 
     var timeInput = document.getElementById('timeLabelInput');
     if (timeInput) timeInput.addEventListener('input', function () {
