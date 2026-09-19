@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app version 1.0.8 — ASA/GD split, full carry-forward redesign, absence records preserved on manual removal (REFRESH pulls back), CDS/CDO already independent per session, Employees/Superiors grouped by sub-unit with filter + colored badges + banners, temp-removal checkbox removed from edit form, History delete + edit -->
+<!-- app version 1.0.9 — fixed stale ASA/GD category mapping (was blocking Data tracking for the new split reasons entirely), fixed deleted MC/OSL/LL records resurrecting from old history snapshots -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -210,7 +210,7 @@
     'OSL': 'leaves', 'LL': 'leaves', 'PM LL': 'leaves', 'AM LL': 'leaves', 'AM OSL': 'leaves', 'PM OSL': 'leaves',
     'AM MA': 'ma', 'PM MA': 'ma',
     'OFF': 'offs',
-    'RSO': 'others', 'OOC': 'others', 'ASA': 'others', 'GD': 'others', 'MEDIC DUTY': 'others',
+    'RSO': 'others', 'OOC': 'others', 'ASA CURRENT': 'others', 'ASA OUTGOING': 'others', 'GD CURRENT': 'others', 'GD OUTGOING': 'others', 'MEDIC DUTY': 'others',
     'MED COVER': 'others', 'BR COHESION': 'others', 'LATE': 'others', 'SKILLSFUTURE': 'others',
     'COURSE': 'others', 'BR WORK': 'others', 'OTHER': 'others'
   };
@@ -1052,6 +1052,16 @@
           var parsed = parseAnyMultiDayReason_(personRec.reason);
           if (!parsed) continue;
           if (parsed.startDate <= todayStr && todayStr <= parsed.endDate) {
+            // A saved history snapshot is permanent, but the absence record
+            // behind it might since have been deleted in Data — without this
+            // check, a deleted MC/OSL/LL keeps getting resurrected from that
+            // old snapshot for as long as its date range still covers today.
+            var baseName = baseReasonNameOf_(personRec.reason);
+            var catKey = REASON_CATEGORY_OF_NAME[baseName];
+            var stillBacked = catKey && (APP[REASON_CATEGORIES[catKey].listKey] || []).some(function (r) {
+              return r.employeeId === emp.id && baseReasonNameOf_(r.reason) === baseName && coversDate_(r, todayStr);
+            });
+            if (!stillBacked) continue;
             applyAttendanceLocal({ empId: emp.id, session: sess, status: 'Out', reason: personRec.reason, bucket: personRec.bucket || bucketForReasonLocal(personRec.reason) });
             dirtyKeys.add(emp.id + '|' + sess);
             filled++;
