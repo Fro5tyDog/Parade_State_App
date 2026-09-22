@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app version 1.1.0 — complete carry-forward redesign per full spec: MC "always refreshed" direct mechanism with RSO exception + Sunday-backward rule, generalized last-day StayIn override (leaves+offs), AM LL/OSL StayIn<->AM (verbatim both directions incl. backward), MEDIC DUTY/MED COVER verbatim same-day chain + Sunday-only StayIn->AM, BR COHESION/COURSE verbatim StayIn->AM, LATE/SKILLSFUTURE/BR WORK/OTHER full blank-out chain, RSO StayIn->AM blank-out, deletion fully erases records again (reverted) -->
+<!-- app version 1.1.1 — AM MA now available in Stay-in, carries verbatim into the following day's AM -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -189,7 +189,7 @@
   var SESSION_RESTRICTED_REASONS = {
     'ASA CURRENT': ['PM', 'STAYIN'], 'GD CURRENT': ['PM', 'STAYIN'],
     'ASA OUTGOING': ['AM'], 'GD OUTGOING': ['AM'],
-    'AM LL': ['AM', 'STAYIN'], 'AM OSL': ['AM', 'STAYIN']
+    'AM LL': ['AM', 'STAYIN'], 'AM OSL': ['AM', 'STAYIN'], 'AM MA': ['AM', 'STAYIN']
   };
   var REASONS_WITH_DETAIL = {
     'MC': { type: 'dates' }, 'OSL': { type: 'dates' }, 'LL': { type: 'dates' },
@@ -784,7 +784,7 @@
   }
   function renderReasonModal(empId, e) {
     var plainReasons = DEFAULT_REASONS.map(function (r) { return r[0]; })
-      .filter(function (r) { return reasonAvailableForSession_(r) && (session !== 'STAYIN' || (r !== 'AM MA' && r !== 'PM MA')); });
+      .filter(function (r) { return reasonAvailableForSession_(r) && (session !== 'STAYIN' || r !== 'PM MA'); });
     var html;
     if (detailReasonName) {
       var cfg = REASONS_WITH_DETAIL[detailReasonName];
@@ -1208,7 +1208,7 @@
   function carryForwardStayInAbsencesToNextAm_() {
     var filled = 0;
     var TRANSFORM = { 'GD CURRENT': 'GD OUTGOING', 'ASA CURRENT': 'ASA OUTGOING' };
-    var VERBATIM = ['AM LL', 'AM OSL', 'BR COHESION', 'COURSE'];
+    var VERBATIM = ['AM LL', 'AM OSL', 'AM MA', 'BR COHESION', 'COURSE'];
     var VERBATIM_SUNDAY_ONLY = ['MEDIC DUTY', 'MED COVER'];
     var BLANK_ON_CARRY = ['RSO', 'LATE', 'SKILLSFUTURE', 'BR WORK', 'OTHER'];
     var yesterday = previousDayIso_(APP.date);
