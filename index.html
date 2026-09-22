@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app version 1.1.3 — export downloads now try the native share sheet first (navigator.share), falling back to the old download-link trick with honest (non-false-positive) messaging -->
+<!-- app version 1.1.4 — History JSON import added (merges new records by date+session, never overwrites existing ones) -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -2133,6 +2133,86 @@
     });
   }
 
+  /** History import is a merge, not a replace — unlike master.json (a single
+   *  current-state roster), history is a growing log of many dated records,
+   *  so overwriting everything on import would be the wrong default. Any
+   *  record not already saved locally (matched by date + attendance type)
+   *  gets added; anything that already exists is left untouched. */
+  function openHistoryImportModal_() {
+    var html = '<div class="modal-overlay" id="modalOverlay"><div class="modal-sheet">' +
+      '<h3>Import History JSON</h3>' +
+      '<div class="sub">Adds any records not already saved locally, matched by date and attendance type. Existing records are never overwritten.</div>' +
+      '<div class="field-row"><label>Choose a file</label><input type="file" id="historyImportFile" accept="application/json,.json"></div>' +
+      '<div class="field-row"><label>...or paste it directly</label><textarea class="export-textarea" id="historyImportTextarea" placeholder="Paste history JSON contents here" style="min-height:160px;"></textarea></div>' +
+      '<button class="btn full" id="historyImportBtn" style="margin-bottom:8px;">IMPORT</button>' +
+      '<button class="modal-close" id="modalClose">CANCEL</button></div></div>';
+    document.getElementById('modalRoot').innerHTML = html;
+    document.getElementById('modalOverlay').addEventListener('click', function (ev) { if (ev.target.id === 'modalOverlay') closeModal(); });
+    document.getElementById('modalClose').addEventListener('click', closeModal);
+
+    var fileInput = document.getElementById('historyImportFile');
+    var textarea = document.getElementById('historyImportTextarea');
+    fileInput.addEventListener('change', function () {
+      var file = fileInput.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () { textarea.value = reader.result; };
+      reader.onerror = function () { showToast('Could not read that file.'); };
+      reader.readAsText(file);
+    });
+
+    document.getElementById('historyImportBtn').addEventListener('click', function () {
+      var text = (textarea.value || '').trim();
+      if (!text) { showToast('Choose a file or paste history JSON contents first.'); return; }
+      applyHistoryImport_(text);
+    });
+  }
+  async function applyHistoryImport_(text) {
+    var data;
+    try {
+      data = JSON.parse(text);
+    } catch (err) {
+      showToast('That doesn\'t look like valid JSON.');
+      return;
+    }
+    if (!data || !Array.isArray(data.records)) { showToast('Invalid history JSON — no records found.'); return; }
+
+    var added = 0, skipped = 0, invalid = 0;
+    var toSave = [];
+    data.records.forEach(function (rec) {
+      if (!rec || !rec.date || !rec.session || !Array.isArray(rec.people)) { invalid++; return; }
+      var key = rec.date + '|' + rec.session;
+      var exists = historyList.some(function (h) { return h.key === key; });
+      if (exists) { skipped++; return; }
+      toSave.push({
+        key: key, date: rec.date, session: rec.session,
+        snapshot: { label: rec.label, timeLabel: rec.timeLabel, cds: rec.cds, cdo: rec.cdo, total: rec.total, present: rec.present, people: rec.people },
+        savedAt: new Date().toISOString()
+      });
+      added++;
+    });
+
+    if (!toSave.length) {
+      showToast(skipped > 0 ? 'Nothing new — all ' + skipped + ' record(s) already saved.' : 'No valid records found to import.');
+      return;
+    }
+
+    try {
+      await idbBulkPut('paradeHistory', toSave);
+      historyList = historyList.concat(toSave);
+      console.log('[History] Import complete:', added, 'added,', skipped, 'skipped,', invalid, 'invalid.');
+      var msg = 'Imported ' + added + ' record(s).';
+      if (skipped) msg += ' ' + skipped + ' already existed, skipped.';
+      if (invalid) msg += ' ' + invalid + ' invalid, ignored.';
+      showToast(msg);
+      closeModal();
+      render();
+    } catch (err) {
+      console.log('[History] Import save FAILED:', err);
+      showToast('Import failed — ' + (err && err.message ? err.message : 'see Logcat/Console.'));
+    }
+  }
+
   /** Tries the native share sheet first — a genuine web standard, not a
    *  Capacitor plugin, so it needs no rebuild and may or may not be exposed
    *  depending on this WebView's exact setup. Falls back to the classic
@@ -2495,7 +2575,9 @@
       '<label class="check-label"><input type="checkbox" id="histFilterAM" ' + (historyShowAM ? 'checked' : '') + '> AM PARADE</label>' +
       '<label class="check-label"><input type="checkbox" id="histFilterPM" ' + (historyShowPM ? 'checked' : '') + '> PM PARADE</label>' +
       '<label class="check-label"><input type="checkbox" id="histFilterStayIn" ' + (historyShowStayIn ? 'checked' : '') + '> STAY-IN</label></div>';
-    html += '<button class="btn ghost full" id="btnHistoryExportJson" style="margin-bottom:12px;">EXPORT (currently filtered) AS JSON</button>';
+    html += '<div class="field-row-2" style="margin-bottom:12px;">' +
+      '<button class="btn ghost" id="btnHistoryExportJson" style="flex:1;">EXPORT (filtered) AS JSON</button>' +
+      '<button class="btn ghost" id="btnHistoryImportJson" style="flex:1;">IMPORT JSON</button></div>';
     html += '<div id="historyResults">' + historyResultsHtml_() + '</div>';
     return html;
   }
@@ -2517,6 +2599,8 @@
   function bindHistoryEvents() {
     var exportJsonBtn = document.getElementById('btnHistoryExportJson');
     if (exportJsonBtn) exportJsonBtn.addEventListener('click', openHistoryExportJsonModal_);
+    var importJsonBtn = document.getElementById('btnHistoryImportJson');
+    if (importJsonBtn) importJsonBtn.addEventListener('click', openHistoryImportModal_);
 
     var dateInput = document.getElementById('historyDateFilter');
     if (dateInput) dateInput.addEventListener('change', function () {
