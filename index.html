@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app version 1.1.1 — AM MA now available in Stay-in, carries verbatim into the following day's AM -->
+<!-- app version 1.1.2 — Stay-in Strength live view now grouped by sub-unit (export unaffected, still a flat list) -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -1441,15 +1441,22 @@
 
   // ================= STAY-IN STRENGTH =================
   function stayInEmployeeListHtml() {
-    var members = APP.employees.filter(function (e) { return isTrue(e.isStayIn) && !isTrue(e.isORD); });
-    var rows = members.map(function (e) {
-      if (isTrue(e.isExcluded)) { if (paradeFilter !== 'ALL') return ''; return empRowHtml(e, null); }
-      var a = attFor(e.id, 'STAYIN');
-      if (!matchesFilter(a.bucket)) return '';
-      return empRowHtml(e, a);
-    }).join('');
-    if (rows.trim() === '') return '<div class="empty-hint">No one matches this filter.</div>';
-    return '<div class="emp-grid">' + rows + '</div>';
+    var groupNames = sortGroupNamesBySubUnitOrder_(APP.subUnits.map(function (s) { return s.name; }));
+    var html = '', any = false;
+    groupNames.forEach(function (groupName) {
+      var members = APP.employees.filter(function (e) { return e.subUnit === groupName && isTrue(e.isStayIn) && !isTrue(e.isORD); });
+      var rows = members.map(function (e) {
+        if (isTrue(e.isExcluded)) { if (paradeFilter !== 'ALL') return ''; return empRowHtml(e, null); }
+        var a = attFor(e.id, 'STAYIN');
+        if (!matchesFilter(a.bucket)) return '';
+        return empRowHtml(e, a);
+      }).join('');
+      if (rows.trim() === '') return;
+      any = true;
+      html += '<div class="group"><div class="group-title">' + esc(groupName) + '</div><div class="emp-grid">' + rows + '</div></div>';
+    });
+    if (!any) return '<div class="empty-hint">No one matches this filter.</div>';
+    return html;
   }
   function stayInHtml() {
     var counts = paradeCounts('STAYIN');
