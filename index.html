@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app version 1.1.4 — History JSON import added (merges new records by date+session, never overwrites existing ones) -->
+<!-- app version 1.1.5 — Data tab search/filter for every category; AM/PM/Stay-in reasons now back independent records so overwriting one session's reason no longer deletes another session's (carry-forward rules unchanged) -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -409,6 +409,15 @@
   var historyViewEditMode = false, historyViewDirty = false;
   var historyViewFilter = 'ALL', historyViewSubFilter = 'ALL';
   var dataSubTab = 'employees';
+  // Per-tab search text + sub-unit chip filter for the Data tab's own lists
+  // (separate from employeeSubFilter/superiorSubFilter, which already existed).
+  // Kept as one object per kind so switching tabs doesn't clear what was typed
+  // elsewhere, and so a search input's own DOM node is never destroyed by a
+  // full render() while the person is still typing in it (see
+  // renderDataFilterResults_ below) — matches the same "targeted update only"
+  // care already taken for the reason-detail and absence-form date inputs.
+  var dataSearch = { subunits: '', employees: '', superiors: '', mc: '', leaves: '', ma: '', offs: '', others: '' };
+  var absenceSubFilter = { mc: 'ALL', leaves: 'ALL', ma: 'ALL', offs: 'ALL', others: 'ALL' };
   var detailReasonName = '', detailDays = 1, detailStartDate = '', detailEndDate = '', detailText = '';
   var replaceReasonConfirmTarget = null;
   var absenceForm = { employeeId: '', reasonName: '', days: 1, date: '', endDate: '', text: '' };
@@ -1008,10 +1017,15 @@
   /** REFRESH's "pull back" — since deliberately marking someone In/Out no
    *  longer deletes their underlying absence record (see performMarkStatus_),
    *  this is what brings it back: for AM/PM, re-applies any absence record
-   *  covering today whose reason doesn't already match what's showing. For
-   *  Stay-in, simply clears its current entries and lets runAutoFillPass_'s
+   *  covering today whose reason doesn't already match what's showing,
+   *  skipping any record tagged for a *different* attendance type so one
+   *  session's refresh can never pull in another session's own pick. For
+   *  Stay-in, it clears the current entries and lets runAutoFillPass_'s
    *  usual Stay-in rules (multi-day continuation, next-day starts, same-day
-   *  PM reference) recompute them fresh. */
+   *  PM reference) recompute them fresh — then re-applies any record that
+   *  was specifically picked for Stay-in itself, so a manual Stay-in choice
+   *  that the generic carry-forward rules wouldn't otherwise reproduce still
+   *  survives a refresh. */
   function pullBackAbsenceRecords_(sessForRefresh) {
     var pulled = 0;
     if (sessForRefresh === 'STAYIN') {
@@ -1020,6 +1034,17 @@
         var idx = APP.attendance.findIndex(function (r) { return r.empId === emp.id && r.session === 'STAYIN'; });
         if (idx >= 0) { APP.attendance.splice(idx, 1); pulled++; }
       });
+      Object.keys(REASON_CATEGORIES).forEach(function (catKey) {
+        var listKey = REASON_CATEGORIES[catKey].listKey;
+        (APP[listKey] || []).forEach(function (rec) {
+          if (rec.session !== 'STAYIN') return;
+          if (!coversDate_(rec, APP.date)) return;
+          var bucket = bucketForReasonLocal(baseReasonNameOf_(rec.reason) || rec.reason);
+          applyAttendanceLocal({ empId: rec.employeeId, session: 'STAYIN', status: bucket === 'In' ? 'In' : 'Out', reason: rec.reason, bucket: bucket });
+          dirtyKeys.add(rec.employeeId + '|STAYIN');
+          pulled++;
+        });
+      });
     } else {
       Object.keys(REASON_CATEGORIES).forEach(function (catKey) {
         if (catKey === 'mc') return; // handled authoritatively by applyMcDirectly_ instead, including the RSO exception
@@ -1027,6 +1052,7 @@
         (APP[listKey] || []).forEach(function (rec) {
           if (!coversDate_(rec, APP.date)) return;
           if (reasonSessionsFor_(rec.reasonName).indexOf(sessForRefresh) === -1) return;
+          if (!recordAppliesToSession_(rec, sessForRefresh)) return;
           var bucket = bucketForReasonLocal(baseReasonNameOf_(rec.reason) || rec.reason);
           var current = attFor(rec.employeeId, sessForRefresh);
           if (current.reason === rec.reason && current.bucket === bucket) return;
@@ -1259,6 +1285,17 @@
     });
     return filled;
   }
+  /** A record's own "session" tag (set only by the live picker — see
+   *  syncAbsenceRecordForLocal_) says which single attendance type it backs.
+   *  A record with no tag is a Data-tab-style record and keeps the original,
+   *  unrestricted behavior of applying to whichever sessions
+   *  reasonSessionsFor_ names. A tagged record never leaks into a different
+   *  attendance type, which is what keeps AM/PM/Stay-in independent: picking
+   *  a new reason for PM can no longer make AM's own, separately-picked
+   *  reason disappear (or vice versa). */
+  function recordAppliesToSession_(rec, sess) {
+    return !rec.session || rec.session === sess;
+  }
   /** Direction A: saved absence records -> today's live view. For every record
    *  (across all 5 categories) whose range covers today, apply it to anyone who
    *  doesn't already have an explicit attendance entry for that session today. */
@@ -1269,6 +1306,7 @@
         if (!coversDate_(rec, APP.date)) return;
         var bucket = bucketForReasonLocal(baseReasonNameOf_(rec.reason) || rec.reason);
         reasonSessionsFor_(rec.reasonName).forEach(function (sess) {
+          if (!recordAppliesToSession_(rec, sess)) return;
           var hasExisting = APP.attendance.filter(function (r) { return r.empId === rec.employeeId && r.session === sess; }).length > 0;
           if (hasExisting) return;
           applyAttendanceLocal({ empId: rec.employeeId, session: sess, status: bucket === 'In' ? 'In' : 'Out', reason: rec.reason, bucket: bucket });
@@ -1278,21 +1316,29 @@
   }
 
   /** Direction B: live picker -> saved absence record. Called after every
-   *  attendance-changing action in the live picker. First removes whichever
-   *  existing record (in any category) currently covers today for this
-   *  employee, then, if the newly-applied reason belongs to one of the 5
-   *  categories, writes a fresh record for it. All in-memory (APP) updates
-   *  happen synchronously before any IndexedDB write, so a caller's render()
-   *  right after calling this always sees the final, consistent state —
-   *  the actual persistence to IndexedDB then happens in the background. */
-  function syncAbsenceRecordForLocal_(empId, reasonName, reasonString, startDate, days) {
+   *  attendance-changing action in the live picker, for whichever attendance
+   *  type (AM/PM/Stay-in) is currently open. Each reason picked this way is
+   *  tagged with that session, and ONLY an edit made from that exact same
+   *  session can replace or clear it again — picking something else for a
+   *  different session leaves it alone. The one exception is an untagged
+   *  (Data-tab-declared) record: since that already applies broadly across
+   *  sessions by design, any live edit is still allowed to supersede it,
+   *  matching the original "overwriting a reason replaces whatever was
+   *  there" behavior for those. All in-memory (APP) updates happen
+   *  synchronously before any IndexedDB write, so a caller's render() right
+   *  after calling this always sees the final, consistent state — the
+   *  actual persistence to IndexedDB then happens in the background. */
+  function syncAbsenceRecordForLocal_(empId, reasonName, reasonString, startDate, days, sessForSync) {
+    var sess = sessForSync || session;
     var todayStr = APP.date;
     var toDelete = [];
     Object.keys(REASON_CATEGORIES).forEach(function (catKey) {
       var listKey = REASON_CATEGORIES[catKey].listKey;
       var keep = [];
       (APP[listKey] || []).forEach(function (r) {
-        if (r.employeeId === empId && coversDate_(r, todayStr)) toDelete.push(r.id); else keep.push(r);
+        var belongsToEmpToday = r.employeeId === empId && coversDate_(r, todayStr);
+        var sameSessionOrShared = !r.session || r.session === sess;
+        if (belongsToEmpToday && sameSessionOrShared) toDelete.push(r.id); else keep.push(r);
       });
       APP[listKey] = keep;
     });
@@ -1301,7 +1347,7 @@
     var catKey = REASON_CATEGORY_OF_NAME[reasonName];
     if (catKey && reasonName) {
       var listKey = REASON_CATEGORIES[catKey].listKey;
-      newRec = { id: uid_(), employeeId: empId, reasonName: reasonName, reason: reasonString, startDate: startDate, days: days, createdAt: new Date().toISOString() };
+      newRec = { id: uid_(), employeeId: empId, reasonName: reasonName, reason: reasonString, startDate: startDate, days: days, session: sess, createdAt: new Date().toISOString() };
       APP[listKey].push(newRec);
     }
 
@@ -1592,6 +1638,23 @@
   }
 
   // ================= DATA TAB — roster CRUD =================
+  /** Simple case-insensitive substring match used by every Data tab search
+   *  box below. An empty query always matches (nothing typed = no filter). */
+  function matchesSearch_(haystack, query) {
+    if (!query) return true;
+    return (haystack || '').toLowerCase().indexOf(query.trim().toLowerCase()) !== -1;
+  }
+  /** One search input shared by every Data tab list, reading/writing
+   *  dataSearch[dataSubTab]. Its id is always "dataSearchInput" — only one
+   *  Data sub-tab is ever on screen at a time. Typing into it does NOT
+   *  trigger a full render() (see renderDataFilterResults_ / bindUpdateDataEvents):
+   *  a full re-render would replace this very input's DOM node on every
+   *  keystroke and throw the cursor/focus away, the same flashing problem
+   *  already solved for the reason-detail and absence-form date inputs. */
+  function dataSearchBarHtml_(placeholder) {
+    var val = dataSearch[dataSubTab] || '';
+    return '<div class="field-row" style="margin-bottom:10px;"><input type="text" id="dataSearchInput" placeholder="' + esc(placeholder) + '" value="' + esc(val) + '" autocomplete="off"></div>';
+  }
   /** Shared by the Employees and Superiors Data tabs — groups a people list
    *  by sub-unit (in configured order, no-sub-unit last), applying an
    *  optional single-sub-unit filter first. rowRenderer draws one person's
@@ -1627,48 +1690,28 @@
       html += '<button class="btn full savebtn" data-save-roster="subUnits" style="margin-bottom:10px;">SAVE ALL SUB-UNITS</button>';
       html += '<button class="btn full ghost" id="btnAddSubUnit" style="margin-bottom:10px;">+ ADD SUB-UNIT</button>';
       html += '<div class="banner">This order controls how sub-units are grouped everywhere — Parade State, exports, and roster sorting.</div>';
-      html += APP.subUnits.map(function (s, i) {
-        var count = APP.employees.filter(function (e) { return e.subUnit === s.name; }).length;
-        var isFirst = i === 0, isLast = i === APP.subUnits.length - 1;
-        return '<div class="list-row" style="cursor:default;"><div><div class="name">' + esc(s.name) + '</div><div class="meta">' + count + ' people</div></div>' +
-          '<div style="display:flex;gap:4px;align-items:center;">' +
-          '<button class="btn small ghost" data-move-subunit="' + esc(s.id) + '" data-dir="-1" ' + (isFirst ? 'disabled style="opacity:0.35;"' : '') + '>&uarr;</button>' +
-          '<button class="btn small ghost" data-move-subunit="' + esc(s.id) + '" data-dir="1" ' + (isLast ? 'disabled style="opacity:0.35;"' : '') + '>&darr;</button>' +
-          '<button class="btn small ghost" data-edit-subunit-btn="' + esc(s.id) + '">EDIT</button>' +
-          '<button class="btn small danger" data-del-subunit-btn="' + esc(s.id) + '">DELETE</button></div></div>';
-      }).join('') || '<div class="empty-hint">No sub-units yet.</div>';
+      html += dataSearchBarHtml_('Search sub-units…');
+      html += '<div id="dataFilterResults">' + subUnitsListHtml_() + '</div>';
     } else if (dataSubTab === 'employees') {
       html += '<button class="btn full savebtn" data-save-roster="employees" style="margin-bottom:10px;">SAVE ALL EMPLOYEES</button>';
       html += '<div class="field-row-2" style="margin-bottom:10px;">' +
         '<button class="btn ghost" id="btnAddEmployee" style="flex:1;">+ ADD EMPLOYEE</button>' +
         '<button class="btn ghost" id="btnBulkAddEmployee" style="flex:1;">BULK ADD</button></div>';
       html += '<div class="banner">Editing an employee is also where you mark them as CDS, Stay-in, or ORD.</div>';
+      html += dataSearchBarHtml_('Search name or rank…');
       html += '<div class="chiprow">' + '<button class="chip ' + (employeeSubFilter === 'ALL' ? 'active' : '') + '" data-emp-subfilter="ALL">ALL</button>' +
         APP.subUnits.map(function (s) { return '<button class="chip ' + (employeeSubFilter === s.name ? 'active' : '') + '" data-emp-subfilter="' + esc(s.name) + '">' + esc(s.name) + '</button>'; }).join('') + '</div>';
-      html += groupedPeopleHtml_(APP.employees, employeeSubFilter, function (e) {
-        var badges = [];
-        if (e.isCDS) badges.push('<span class="badge badge-cds">CDS</span>');
-        if (e.isStayIn) badges.push('<span class="badge badge-stayin">STAY-IN</span>');
-        if (e.isORD) badges.push('<span class="badge badge-ord">ORD</span>');
-        var meta = badges.length ? badges.join(' ') : '';
-        return '<div class="list-row" style="cursor:default;"><div><div class="name">' + esc(e.rank) + ' ' + esc(e.name) + (e.isExcluded ? ' <span class="meta">(excluded)</span>' : '') + '</div>' + (meta ? '<div class="meta" style="margin-top:3px;">' + meta + '</div>' : '') + '</div>' +
-          '<div style="display:flex;gap:6px;"><button class="btn small ghost" data-edit-employee-btn="' + esc(e.id) + '">EDIT</button>' +
-          '<button class="btn small danger" data-del-employee-btn="' + esc(e.id) + '">DELETE</button></div></div>';
-      }, 'No employees yet.');
+      html += '<div id="dataFilterResults">' + employeesListHtml_() + '</div>';
     } else if (dataSubTab === 'superiors') {
       html += '<button class="btn full savebtn" data-save-roster="superiors" style="margin-bottom:10px;">SAVE ALL SUPERIORS</button>';
       html += '<div class="field-row-2" style="margin-bottom:10px;">' +
         '<button class="btn ghost" id="btnAddSuperior" style="flex:1;">+ ADD SUPERIOR</button>' +
         '<button class="btn ghost" id="btnBulkAddSuperior" style="flex:1;">BULK ADD</button></div>';
       html += '<div class="banner">Editing a superior is also where you mark them as CDO.</div>';
+      html += dataSearchBarHtml_('Search name or rank…');
       html += '<div class="chiprow">' + '<button class="chip ' + (superiorSubFilter === 'ALL' ? 'active' : '') + '" data-sup-subfilter="ALL">ALL</button>' +
         APP.subUnits.map(function (s) { return '<button class="chip ' + (superiorSubFilter === s.name ? 'active' : '') + '" data-sup-subfilter="' + esc(s.name) + '">' + esc(s.name) + '</button>'; }).join('') + '</div>';
-      html += groupedPeopleHtml_(APP.superiors, superiorSubFilter, function (s) {
-        var meta = s.isCDO ? '<span class="badge badge-cdo">CDO</span>' : '';
-        return '<div class="list-row" style="cursor:default;"><div><div class="name">' + esc(s.rank) + ' ' + esc(s.name) + '</div>' + (meta ? '<div class="meta" style="margin-top:3px;">' + meta + '</div>' : '') + '</div>' +
-          '<div style="display:flex;gap:6px;"><button class="btn small ghost" data-edit-superior-btn="' + esc(s.id) + '">EDIT</button>' +
-          '<button class="btn small danger" data-del-superior-btn="' + esc(s.id) + '">DELETE</button></div></div>';
-      }, 'No superiors yet.');
+      html += '<div id="dataFilterResults">' + superiorsListHtml_() + '</div>';
     } else if (dataSubTab === 'company') {
       html += '<div class="banner">This name appears on the first line of every exported Parade State.</div>';
       html += '<div class="field-row"><label>Company name</label><input type="text" id="companyNameInput" value="' + esc(APP.companyName) + '"></div>';
@@ -1686,10 +1729,55 @@
     return html;
   }
 
+  /** Filtered sub-units list (search only — sub-units don't have a sub-unit
+   *  of their own to chip-filter by). Move-up/down arrows are hidden while a
+   *  search is active, since "up"/"down" would reorder relative to rows the
+   *  search is currently hiding, which is more confusing than helpful. */
+  function subUnitsListHtml_() {
+    var q = dataSearch.subunits;
+    var list = APP.subUnits.filter(function (s) { return matchesSearch_(s.name, q); });
+    if (!list.length) return '<div class="empty-hint">' + (APP.subUnits.length ? 'No sub-units found.' : 'No sub-units yet.') + '</div>';
+    var filtering = !!(q && q.trim());
+    return list.map(function (s) {
+      var i = APP.subUnits.indexOf(s);
+      var count = APP.employees.filter(function (e) { return e.subUnit === s.name; }).length;
+      var isFirst = i === 0, isLast = i === APP.subUnits.length - 1;
+      var moveBtns = filtering ? '' :
+        '<button class="btn small ghost" data-move-subunit="' + esc(s.id) + '" data-dir="-1" ' + (isFirst ? 'disabled style="opacity:0.35;"' : '') + '>&uarr;</button>' +
+        '<button class="btn small ghost" data-move-subunit="' + esc(s.id) + '" data-dir="1" ' + (isLast ? 'disabled style="opacity:0.35;"' : '') + '>&darr;</button>';
+      return '<div class="list-row" style="cursor:default;"><div><div class="name">' + esc(s.name) + '</div><div class="meta">' + count + ' people</div></div>' +
+        '<div style="display:flex;gap:4px;align-items:center;">' + moveBtns +
+        '<button class="btn small ghost" data-edit-subunit-btn="' + esc(s.id) + '">EDIT</button>' +
+        '<button class="btn small danger" data-del-subunit-btn="' + esc(s.id) + '">DELETE</button></div></div>';
+    }).join('');
+  }
+  function employeesListHtml_() {
+    var q = dataSearch.employees;
+    var people = (q && q.trim()) ? APP.employees.filter(function (e) { return matchesSearch_(e.rank + ' ' + e.name, q); }) : APP.employees;
+    return groupedPeopleHtml_(people, employeeSubFilter, function (e) {
+      var badges = [];
+      if (e.isCDS) badges.push('<span class="badge badge-cds">CDS</span>');
+      if (e.isStayIn) badges.push('<span class="badge badge-stayin">STAY-IN</span>');
+      if (e.isORD) badges.push('<span class="badge badge-ord">ORD</span>');
+      var meta = badges.length ? badges.join(' ') : '';
+      return '<div class="list-row" style="cursor:default;"><div><div class="name">' + esc(e.rank) + ' ' + esc(e.name) + (e.isExcluded ? ' <span class="meta">(excluded)</span>' : '') + '</div>' + (meta ? '<div class="meta" style="margin-top:3px;">' + meta + '</div>' : '') + '</div>' +
+        '<div style="display:flex;gap:6px;"><button class="btn small ghost" data-edit-employee-btn="' + esc(e.id) + '">EDIT</button>' +
+        '<button class="btn small danger" data-del-employee-btn="' + esc(e.id) + '">DELETE</button></div></div>';
+    }, 'No employees found.');
+  }
+  function superiorsListHtml_() {
+    var q = dataSearch.superiors;
+    var people = (q && q.trim()) ? APP.superiors.filter(function (s) { return matchesSearch_(s.rank + ' ' + s.name, q); }) : APP.superiors;
+    return groupedPeopleHtml_(people, superiorSubFilter, function (s) {
+      var meta = s.isCDO ? '<span class="badge badge-cdo">CDO</span>' : '';
+      return '<div class="list-row" style="cursor:default;"><div><div class="name">' + esc(s.rank) + ' ' + esc(s.name) + '</div>' + (meta ? '<div class="meta" style="margin-top:3px;">' + meta + '</div>' : '') + '</div>' +
+        '<div style="display:flex;gap:6px;"><button class="btn small ghost" data-edit-superior-btn="' + esc(s.id) + '">EDIT</button>' +
+        '<button class="btn small danger" data-del-superior-btn="' + esc(s.id) + '">DELETE</button></div></div>';
+    }, 'No superiors found.');
+  }
+
   // ---------- Absence records (MC / Leaves / MA / Offs / Others) ----------
   function absenceRecordsPanel(catKey) {
-    var cat = REASON_CATEGORIES[catKey];
-    var list = APP[cat.listKey] || [];
     var categoryReasons = Object.keys(REASON_CATEGORY_OF_NAME).filter(function (r) { return REASON_CATEGORY_OF_NAME[r] === catKey; });
 
     if (!absenceForm.reasonName || categoryReasons.indexOf(absenceForm.reasonName) === -1) {
@@ -1725,7 +1813,31 @@
     html += '<button class="btn full" id="absSubmitBtn" style="margin-bottom:' + (isEditing ? '8px' : '16px') + ';">' + (isEditing ? 'SAVE CHANGES' : 'ADD RECORD') + '</button>';
     if (isEditing) html += '<button class="btn ghost full" id="absCancelBtn" style="margin-bottom:16px;">CANCEL</button>';
 
-    list.forEach(function (rec) {
+    html += dataSearchBarHtml_('Search name or reason…');
+    var subF = absenceSubFilter[catKey] || 'ALL';
+    html += '<div class="chiprow">' + '<button class="chip ' + (subF === 'ALL' ? 'active' : '') + '" data-abs-subfilter="ALL">ALL</button>' +
+      APP.subUnits.map(function (s) { return '<button class="chip ' + (subF === s.name ? 'active' : '') + '" data-abs-subfilter="' + esc(s.name) + '">' + esc(s.name) + '</button>'; }).join('') + '</div>';
+    html += '<div id="dataFilterResults">' + absenceListRowsHtml_(catKey) + '</div>';
+    return html;
+  }
+  /** The actual record rows for one absence category, after applying its
+   *  search text (matches employee name/rank OR the reason string, e.g. so
+   *  typing an OOC location or a course name finds the right record) and its
+   *  sub-unit chip filter (matches the record's employee's sub-unit). */
+  function absenceListRowsHtml_(catKey) {
+    var cat = REASON_CATEGORIES[catKey];
+    var list = APP[cat.listKey] || [];
+    var q = dataSearch[catKey];
+    var subF = absenceSubFilter[catKey] || 'ALL';
+    var filtered = list.filter(function (rec) {
+      var emp = APP.employees.filter(function (e) { return e.id === rec.employeeId; })[0];
+      if (subF !== 'ALL' && (!emp || emp.subUnit !== subF)) return false;
+      if (!q || !q.trim()) return true;
+      var haystack = (emp ? (emp.rank + ' ' + emp.name) : '') + ' ' + rec.reason;
+      return matchesSearch_(haystack, q);
+    });
+    var html = '';
+    filtered.forEach(function (rec) {
       var emp = APP.employees.filter(function (e) { return e.id === rec.employeeId; })[0];
       var empLabel = emp ? (esc(emp.rank) + ' ' + esc(emp.name)) : '(removed employee)';
       var isArmed = pendingDeleteAbsence.catKey === catKey && pendingDeleteAbsence.id === rec.id;
@@ -1734,8 +1846,39 @@
         '<button class="btn small danger" data-del-absence="' + esc(rec.id) + '" data-catkey="' + catKey + '">' + (isArmed ? 'TAP AGAIN' : 'DELETE') + '</button>' +
         '</div></div>';
     });
-    if (list.length === 0) html += '<div class="empty-hint">No records yet.</div>';
+    if (!filtered.length) html = '<div class="empty-hint">' + (list.length ? 'No records found.' : 'No records yet.') + '</div>';
     return html;
+  }
+  /** Re-renders just the #dataFilterResults container for whichever Data
+   *  sub-tab is active and rebinds its row buttons — called after the search
+   *  input changes so the search box itself is never destroyed mid-type (see
+   *  dataSearchBarHtml_). Sub-unit chip clicks and tab switches still go
+   *  through the normal full render(), which is fine since those aren't
+   *  continuous typing. */
+  function renderDataFilterResults_() {
+    var container = document.getElementById('dataFilterResults');
+    if (!container) return;
+    if (dataSubTab === 'subunits') { container.innerHTML = subUnitsListHtml_(); bindSubUnitsListEvents_(); }
+    else if (dataSubTab === 'employees') { container.innerHTML = employeesListHtml_(); bindEmployeesListEvents_(); }
+    else if (dataSubTab === 'superiors') { container.innerHTML = superiorsListHtml_(); bindSuperiorsListEvents_(); }
+    else if (REASON_CATEGORIES[dataSubTab]) { container.innerHTML = absenceListRowsHtml_(dataSubTab); bindAbsenceListEvents_(); }
+  }
+  function bindSubUnitsListEvents_() {
+    document.querySelectorAll('[data-move-subunit]').forEach(function (r) { r.addEventListener('click', function () { moveSubUnit_(r.getAttribute('data-move-subunit'), parseInt(r.getAttribute('data-dir'), 10)); }); });
+    document.querySelectorAll('[data-edit-subunit-btn]').forEach(function (r) { r.addEventListener('click', function () { subUnitFormModal(APP.subUnits.filter(function (s) { return s.id === r.getAttribute('data-edit-subunit-btn'); })[0]); }); });
+    document.querySelectorAll('[data-del-subunit-btn]').forEach(function (r) { r.addEventListener('click', function () { deleteSubUnit_(r.getAttribute('data-del-subunit-btn')); }); });
+  }
+  function bindEmployeesListEvents_() {
+    document.querySelectorAll('[data-edit-employee-btn]').forEach(function (r) { r.addEventListener('click', function () { employeeFormModal(APP.employees.filter(function (e) { return e.id === r.getAttribute('data-edit-employee-btn'); })[0]); }); });
+    document.querySelectorAll('[data-del-employee-btn]').forEach(function (r) { r.addEventListener('click', function () { deleteEmployee_(r.getAttribute('data-del-employee-btn')); }); });
+  }
+  function bindSuperiorsListEvents_() {
+    document.querySelectorAll('[data-edit-superior-btn]').forEach(function (r) { r.addEventListener('click', function () { superiorFormModal(APP.superiors.filter(function (s) { return s.id === r.getAttribute('data-edit-superior-btn'); })[0]); }); });
+    document.querySelectorAll('[data-del-superior-btn]').forEach(function (r) { r.addEventListener('click', function () { deleteSuperior_(r.getAttribute('data-del-superior-btn')); }); });
+  }
+  function bindAbsenceListEvents_() {
+    document.querySelectorAll('[data-edit-absence]').forEach(function (b) { b.addEventListener('click', function () { startEditAbsence_(b.getAttribute('data-catkey'), b.getAttribute('data-edit-absence')); }); });
+    document.querySelectorAll('[data-del-absence]').forEach(function (b) { b.addEventListener('click', function () { deleteAbsence_(b.getAttribute('data-catkey'), b.getAttribute('data-del-absence')); }); });
   }
   function submitAbsenceForm_(catKey) {
     var cat = REASON_CATEGORIES[catKey];
@@ -1845,9 +1988,23 @@
     APP[cat.listKey] = APP[cat.listKey].filter(function (r) { return r.id !== id; });
     idbDelete('absenceRecords', id);
     if (coversDate_(rec, APP.date)) {
-      reasonSessionsFor_(rec.reasonName).forEach(function (s) {
-        applyAttendanceLocal({ empId: rec.employeeId, session: s, status: 'In', reason: '', bucket: 'In' });
-      });
+      if (rec.session === 'STAYIN') {
+        // A record picked specifically for Stay-in isn't covered by
+        // reasonSessionsFor_ (that only ever names AM/PM) — reset Stay-in
+        // directly instead, and leave AM/PM alone since this record never
+        // applied there in the first place.
+        applyAttendanceLocal({ empId: rec.employeeId, session: 'STAYIN', status: 'In', reason: '', bucket: 'In' });
+      } else {
+        // Only reset the sessions this specific record actually backs — an
+        // untagged (Data-tab) record still resets every session its reason
+        // broadly applies to, same as before, but a record tagged for one
+        // particular attendance type must not reset some other, independently
+        // picked session's own reason.
+        reasonSessionsFor_(rec.reasonName).forEach(function (s) {
+          if (!recordAppliesToSession_(rec, s)) return;
+          applyAttendanceLocal({ empId: rec.employeeId, session: s, status: 'In', reason: '', bucket: 'In' });
+        });
+      }
     }
     render();
   }
@@ -2446,18 +2603,24 @@
     if (saveRosterBtn) saveRosterBtn.addEventListener('click', function () { saveRosterData_(saveRosterBtn.getAttribute('data-save-roster')); });
     document.querySelectorAll('[data-emp-subfilter]').forEach(function (c) { c.addEventListener('click', function () { employeeSubFilter = c.getAttribute('data-emp-subfilter'); render(); }); });
     document.querySelectorAll('[data-sup-subfilter]').forEach(function (c) { c.addEventListener('click', function () { superiorSubFilter = c.getAttribute('data-sup-subfilter'); render(); }); });
+    document.querySelectorAll('[data-abs-subfilter]').forEach(function (c) { c.addEventListener('click', function () { absenceSubFilter[dataSubTab] = c.getAttribute('data-abs-subfilter'); render(); }); });
     var addSU = document.getElementById('btnAddSubUnit'); if (addSU) addSU.addEventListener('click', function () { subUnitFormModal(null); });
     var addE = document.getElementById('btnAddEmployee'); if (addE) addE.addEventListener('click', function () { employeeFormModal(null); });
     var addS = document.getElementById('btnAddSuperior'); if (addS) addS.addEventListener('click', function () { superiorFormModal(null); });
     var bulkAddE = document.getElementById('btnBulkAddEmployee'); if (bulkAddE) bulkAddE.addEventListener('click', function () { openBulkModal('employee'); });
     var bulkAddS = document.getElementById('btnBulkAddSuperior'); if (bulkAddS) bulkAddS.addEventListener('click', function () { openBulkModal('superior'); });
-    document.querySelectorAll('[data-move-subunit]').forEach(function (r) { r.addEventListener('click', function () { moveSubUnit_(r.getAttribute('data-move-subunit'), parseInt(r.getAttribute('data-dir'), 10)); }); });
-    document.querySelectorAll('[data-edit-subunit-btn]').forEach(function (r) { r.addEventListener('click', function () { subUnitFormModal(APP.subUnits.filter(function (s) { return s.id === r.getAttribute('data-edit-subunit-btn'); })[0]); }); });
-    document.querySelectorAll('[data-del-subunit-btn]').forEach(function (r) { r.addEventListener('click', function () { deleteSubUnit_(r.getAttribute('data-del-subunit-btn')); }); });
-    document.querySelectorAll('[data-edit-employee-btn]').forEach(function (r) { r.addEventListener('click', function () { employeeFormModal(APP.employees.filter(function (e) { return e.id === r.getAttribute('data-edit-employee-btn'); })[0]); }); });
-    document.querySelectorAll('[data-del-employee-btn]').forEach(function (r) { r.addEventListener('click', function () { deleteEmployee_(r.getAttribute('data-del-employee-btn')); }); });
-    document.querySelectorAll('[data-edit-superior-btn]').forEach(function (r) { r.addEventListener('click', function () { superiorFormModal(APP.superiors.filter(function (s) { return s.id === r.getAttribute('data-edit-superior-btn'); })[0]); }); });
-    document.querySelectorAll('[data-del-superior-btn]').forEach(function (r) { r.addEventListener('click', function () { deleteSuperior_(r.getAttribute('data-del-superior-btn')); }); });
+    // The search box: typing updates the filter and redraws only the
+    // #dataFilterResults list below it (renderDataFilterResults_), never a
+    // full render() — a full render() would recreate this very input on
+    // every keystroke and throw the cursor away mid-type.
+    var dataSearchInput = document.getElementById('dataSearchInput');
+    if (dataSearchInput) dataSearchInput.addEventListener('input', function () {
+      dataSearch[dataSubTab] = dataSearchInput.value;
+      renderDataFilterResults_();
+    });
+    bindSubUnitsListEvents_();
+    bindEmployeesListEvents_();
+    bindSuperiorsListEvents_();
 
     if (REASON_CATEGORIES[dataSubTab]) {
       var catKey = dataSubTab;
@@ -2499,8 +2662,7 @@
         absenceForm = { employeeId: '', reasonName: '', days: 1, date: '', endDate: '', text: '' };
         render();
       });
-      document.querySelectorAll('[data-edit-absence]').forEach(function (b) { b.addEventListener('click', function () { startEditAbsence_(b.getAttribute('data-catkey'), b.getAttribute('data-edit-absence')); }); });
-      document.querySelectorAll('[data-del-absence]').forEach(function (b) { b.addEventListener('click', function () { deleteAbsence_(b.getAttribute('data-catkey'), b.getAttribute('data-del-absence')); }); });
+      bindAbsenceListEvents_();
     }
 
     if (dataSubTab === 'company') {
