@@ -505,7 +505,7 @@ h2 { color: var(--text); }
     <li><b>Export message</b> (top of MC, Leaves, MA, Offs, Others) writes a "Personnel on MC"-style message for one month, or for all months together under a "first month - last month" heading, per person with how many times and each date. Leaves, MA and Others also show which reason.</li>
     <li><b>Search and sub-unit chips</b> narrow every list. Searching a reason's text (e.g. a course name) finds those records.</li>
     <li><b>Order</b>: the arrows on Sub-units and Employees set the order used everywhere, including exports.</li>
-    <li><b>ORD</b>: tick ORD and set the date they leave. They still appear on any parade dated before that.</li>
+    <li><b>ORD</b>: tick ORD and set the date they leave. They still appear on that date and any parade before it, and drop off from the next day.</li>
   </ul>
 
   <h3 id="g-history">History</h3>
@@ -867,14 +867,14 @@ h2 { color: var(--text); }
   }
 
   // ================= CORE ATTENDANCE HELPERS =================
-  /** ORD is date-aware: someone marked ORD with a date has left from that
-   *  date onward, so any earlier date (e.g. reopening an older parade state
+  /** ORD is date-aware: someone marked ORD with a date still appears on
+   *  their ORD date itself and is gone from the day after, so any earlier date (e.g. reopening an older parade state
    *  via Change Date) still shows them as normal. An ORD with no date
    *  recorded (marked before this field existed) counts as gone on every date. */
   function hasOrdedBy_(e, dateIso) {
     if (!isTrue(e.isORD)) return false;
     if (!e.ordDate) return true;
-    return (dateIso || APP.date) >= e.ordDate;
+    return (dateIso || APP.date) > e.ordDate; // still on parade on the ORD date itself
   }
   function isActiveForParade_(e) { return !isTrue(e.isExcluded) && !hasOrdedBy_(e, APP.date); }
   function bucketForReasonLocal(reason) { return REASON_BUCKET[reason] || 'Out'; }
@@ -2638,7 +2638,7 @@ h2 { color: var(--text); }
       '<div class="toggle-row"><span>CDS</span><input type="checkbox" id="empIsCDS" ' + (existing && existing.isCDS ? 'checked' : '') + '></div>' +
       '<div class="toggle-row"><span>Stay-In</span><input type="checkbox" id="empIsStayIn" ' + (existing && existing.isStayIn ? 'checked' : '') + '></div>' +
       '<div class="toggle-row"><span>ORD</span><input type="checkbox" id="empIsORD" ' + (existing && existing.isORD ? 'checked' : '') + '></div>' +
-      '<div class="field-row" id="empOrdDateRow" style="margin-top:8px;' + (existing && existing.isORD ? '' : 'display:none;') + '"><label>ORD date (first day they\'re no longer on parade)</label>' +
+      '<div class="field-row" id="empOrdDateRow" style="margin-top:8px;' + (existing && existing.isORD ? '' : 'display:none;') + '"><label>ORD date (last day they appear on parade)</label>' +
       '<input type="date" id="empOrdDate" value="' + esc(existing && existing.ordDate ? existing.ordDate : '') + '"></div>' +
       '<button class="btn full" id="saveEmpBtn" style="margin:10px 0 8px;">SAVE</button>' +
       '<button class="modal-close" id="modalClose">CANCEL</button></div></div>';
