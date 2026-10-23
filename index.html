@@ -502,7 +502,7 @@ h2 { color: var(--text); }
   <ul>
     <li><b>MC, Leaves, MA, Offs, Others</b> each list every employee (ORD included) with a dropdown of their records, newest first. Each record shows its From → To.</li>
     <li><b>Adding a record</b>: choose the person, reason and date. For MC, leave and Course, set the days, first day and last day; they keep each other in step. <b>Shows on parade</b> fills in From and To using the rules above; change them if this one is different.</li>
-    <li><b>Export message</b> (top of MC, Leaves, MA, Offs, Others) writes a "Personnel on MC"-style message for one month or all months, per person with how many times and each date. Leaves, MA and Others also show which reason.</li>
+    <li><b>Export message</b> (top of MC, Leaves, MA, Offs, Others) writes a "Personnel on MC"-style message for one month, or for all months together under a "first month - last month" heading, per person with how many times and each date. Leaves, MA and Others also show which reason.</li>
     <li><b>Search and sub-unit chips</b> narrow every list. Searching a reason's text (e.g. a course name) finds those records.</li>
     <li><b>Order</b>: the arrows on Sub-units and Employees set the order used everywhere, including exports.</li>
     <li><b>ORD</b>: tick ORD and set the date they leave. They still appear on any parade dated before that.</li>
@@ -1994,10 +1994,15 @@ h2 { color: var(--text); }
     var months = entries.map(function (x) { return x.month; }).filter(function (m, i, a) { return a.indexOf(m) === i; }).sort();
     var empOrder = sortPeopleBySubUnitOrder_(APP.employees).map(function (e) { return e.id; });
     var rankOf = function (id) { var i = empOrder.indexOf(id); return i === -1 ? 1e9 : i; };
-    months.forEach(function (m) {
+    // One month → that month's heading. All months → a single block headed
+    // "first month - last month", with each person's records counted together.
+    var groups = month === 'ALL'
+      ? [{ label: months.length > 1 ? monthLabel_(months[0]) + ' - ' + monthLabel_(months[months.length - 1]) : monthLabel_(months[0]), match: function () { return true; } }]
+      : months.map(function (m) { return { label: monthLabel_(m), match: function (x) { return x.month === m; } }; });
+    groups.forEach(function (g) {
       lines.push('');
-      lines.push(monthLabel_(m));
-      var inMonth = entries.filter(function (x) { return x.month === m; });
+      lines.push(g.label);
+      var inMonth = entries.filter(g.match);
       var people = inMonth.map(function (x) { return x.rec.employeeId; }).filter(function (id, i, a) { return a.indexOf(id) === i; });
       people.sort(function (a, b) { return rankOf(a) - rankOf(b); });
       people.forEach(function (empId, pi) {
