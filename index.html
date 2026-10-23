@@ -490,10 +490,10 @@ h2 { color: var(--text); }
   </ul>
 
   <h3 id="g-early">Coming back early, or a one-off change</h3>
-  <p>If you mark someone In (or give a new reason) while a longer reason is still running, you're asked:</p>
+  <p>If you mark someone In (or give a new reason) at any parade a longer reason covers — including its last one — you're asked:</p>
   <ul>
     <li><b>End it here</b> — the record stays in Data but now finishes just before this parade. It's labelled "ended early" with the original end date.</li>
-    <li><b>Just this parade</b> — only this parade changes; the longer reason carries on afterwards (e.g. back for a medical review, then on MC again).</li>
+    <li><b>Just this parade</b> — only this parade changes; the longer reason carries on afterwards (e.g. back for a medical review, then on MC again). Their row says "This parade only", and tapping them shows <b>UNDO — BACK TO</b> the reason if you change your mind.</li>
     <li><b>Remove completely</b> — shown instead of "End it here" when the reason started at this very parade, for undoing a mistake.</li>
   </ul>
   <p>Earlier parades are never changed by this. Someone back early simply stops appearing in later parade messages.</p>
@@ -1199,6 +1199,7 @@ h2 { color: var(--text); }
         '<button class="btn ghost full" id="removeFromParadeBtn" style="margin-bottom:8px;">REMOVE FROM PARADE STATE</button>' +
         '<button class="modal-close" id="modalClose">CANCEL</button></div></div>';
     } else {
+      var overridden = overriddenSpanAt_(empId, APP.date, session);
       html = '<div class="modal-overlay" id="modalOverlay"><div class="modal-sheet">' +
         '<h3>' + esc(e.rank) + ' ' + esc(e.name) + '</h3><div class="sub">Choose a reason</div>' +
         '<div class="reason-grid">' + plainReasons.map(function (r) {
@@ -1207,6 +1208,7 @@ h2 { color: var(--text); }
         '<div class="field-row-2" style="margin:10px 0 8px;">' +
         '<button class="btn ghost" id="btnMarkIn" style="flex:1;">MARK IN</button>' +
         '<button class="btn ghost" id="btnMarkOut" style="flex:1;">MARK OUT</button></div>' +
+        (overridden ? '<button class="btn full" id="btnUndoMark" style="margin-bottom:8px;">UNDO — BACK TO ' + esc(overridden.reason) + '</button>' : '') +
         '<button class="btn ghost full" id="removeFromParadeBtn" style="margin-bottom:8px;">REMOVE FROM PARADE STATE</button>' +
         '<button class="modal-close" id="modalClose">CANCEL</button></div></div>';
     }
@@ -1258,6 +1260,15 @@ h2 { color: var(--text); }
         requestReason_(empId, detailReasonName, result.value, { startDate: hasDates ? detailStartDate : APP.date, days: hasDates ? detailDays : 1 });
       });
     } else {
+      var undoBtn = document.getElementById('btnUndoMark');
+      if (undoBtn) undoBtn.addEventListener('click', function () {
+        var sp = overriddenSpanAt_(empId, APP.date, session);
+        var S = slotKey_(APP.date, session);
+        marksFor_(empId).forEach(function (m) { if (slotKey_(m.date, m.session) === S) removeRecordLocal_(m); });
+        document.getElementById('modalRoot').innerHTML = '';
+        afterRecordsChanged_(empId);
+        if (sp) showToast('Back to ' + sp.reason + ' for ' + SESSION_SHORT[session] + ' (as recorded in Data)');
+      });
       document.getElementById('btnMarkIn').addEventListener('click', function () {
         document.getElementById('modalRoot').innerHTML = '';
         requestMark_(empId, 'In');
@@ -1451,8 +1462,11 @@ h2 { color: var(--text); }
         var rso = active.filter(function (x) { return !isMarkRecord_(x.r) && x.r.reasonName === 'RSO'; })[0];
         if (rso) top = rso.r; // an MC never overrides an RSO
       }
-      if (top.kind === 'in') return { status: 'In', bucket: 'In', reason: '', context: '' };
-      if (top.kind === 'out') return { status: 'Out', bucket: 'Out', reason: '', context: 'Marked out' };
+      if (top.kind === 'in' || top.kind === 'out') {
+        var under = active.filter(function (x) { return !isMarkRecord_(x.r); })[0];
+        var note = under ? 'This parade only — ' + under.r.reasonName + ' record runs to ' + slotLabel_(under.r.endDate, under.r.endSession) : (top.kind === 'out' ? 'Marked out' : '');
+        return top.kind === 'in' ? { status: 'In', bucket: 'In', reason: '', context: note } : { status: 'Out', bucket: 'Out', reason: '', context: note };
+      }
       var bucket = bucketForReasonLocal(top.reasonName);
       var ctx = spanEndKey_(top) > S ? 'until ' + slotLabel_(top.endDate, top.endSession) : (spanStartKey_(top) < S ? 'last parade of this ' + top.reasonName : '');
       return { status: bucket === 'In' ? 'In' : 'Out', bucket: bucket, reason: top.reason, context: ctx, spanId: top.id };
@@ -1543,7 +1557,22 @@ h2 { color: var(--text); }
    *  past it — the one a new pick or Mark In/Out would cut into. */
   function spanRunningThrough_(empId, date, sess) {
     var S = slotKey_(date, sess);
-    return spansFor_(empId).filter(function (r) { return spanStartKey_(r) <= S && spanEndKey_(r) > S; })
+    // Any reason covering this parade that isn't a one-parade reason started
+    // right here — including its very last parade — so changing it always
+    // asks "end it here / just this parade" instead of silently overriding.
+    return spansFor_(empId).filter(function (r) {
+      var a = spanStartKey_(r), b = spanEndKey_(r);
+      return a <= S && b >= S && !(a === S && b === S);
+    })
+      .sort(function (a, b) { return spanStartKey_(b) < spanStartKey_(a) ? -1 : 1; })[0] || null;
+  }
+  /** The reason record that a one-off Mark In / Mark Out at this parade is
+   *  currently sitting on top of (if any) — used for the UNDO button. */
+  function overriddenSpanAt_(empId, date, sess) {
+    var S = slotKey_(date, sess);
+    var hasMark = marksFor_(empId).some(function (m) { return slotKey_(m.date, m.session) === S; });
+    if (!hasMark) return null;
+    return spansFor_(empId).filter(function (r) { return spanStartKey_(r) <= S && S <= spanEndKey_(r); })
       .sort(function (a, b) { return spanStartKey_(b) < spanStartKey_(a) ? -1 : 1; })[0] || null;
   }
   /** Clears whatever was set at exactly this parade (marks, and reasons that
