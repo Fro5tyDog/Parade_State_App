@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app version 2.0.0 — one record per absence (start/end by date + AM/PM/Stay-in) with sticky Out; AM/PM/Stay-in in one Parade tab with its own Stay-in order; one-file Backup (Data + History); monthly reason export messages; Data last-day field; employee reordering; date-aware ORD; in-app Guide; Starliner Console style -->
+<!-- app version 2.0.1 — OVERSEAS EXERCISE reason under Others; Starship sound effects (Data › SOUND); one record per absence (start/end by date + AM/PM/Stay-in) with sticky Out; AM/PM/Stay-in in one Parade tab with its own Stay-in order; one-file Backup (Data + History); monthly reason export messages; Data last-day field; employee reordering; date-aware ORD; in-app Guide; Starliner Console style -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -408,7 +408,7 @@ h2 { color: var(--text); }
 .guide-toc a, .guide-flow span { background: #10225e; border: none; color: var(--k-cyan); box-shadow: var(--rim); }
 .guide h3, .backup-title { font-family: var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--k-yel); }
 .guide-table th { color: var(--k-cyan); }
-.check-label input, .toggle-row input[type=checkbox] { accent-color: var(--k-cyan); }
+.check-label input, .toggle-row input[type=checkbox], input[type=range] { accent-color: var(--k-cyan); }
 .bulk-row { background: #071233; border: none; box-shadow: var(--glow-screen); }
 </style>
 </head>
@@ -450,7 +450,7 @@ h2 { color: var(--text); }
 
   <h3 id="g-mark">Marking people</h3>
   <ul>
-    <li><b>Pick a reason</b> — tap the person, choose the reason. Reasons with dates (MC, LL, OSL, Course) ask for the number of days, first day and last day; change any one and the others follow (weekdays only).</li>
+    <li><b>Pick a reason</b> — tap the person, choose the reason. Reasons with dates (MC, LL, OSL, Course, Overseas Exercise) ask for the number of days, first day and last day; change any one and the others follow (weekdays only).</li>
     <li><b>Mark In</b> — they're present at this parade.</li>
     <li><b>Mark Out</b> — they're out with no particular reason.</li>
     <li><b>ARRANGE</b> (Stay-in only) shows arrows to set the Stay-in order, separate from the Parade order. The Stay-in export follows it.</li>
@@ -476,14 +476,14 @@ h2 { color: var(--text); }
       <tr><td>PM LL, PM OSL, PM MA</td><td>PM</td><td>Out from Stay-in</td></tr>
       <tr><td>LL, OSL, OFF</td><td>AM</td><td>Same reason at PM, Out at Stay-in</td></tr>
       <tr><td>MC</td><td>AM</td><td>MC at PM and Stay-in</td></tr>
-      <tr><td>COURSE, OTHER (typed)</td><td>AM</td><td>Same reason at PM and Stay-in</td></tr>
+      <tr><td>COURSE, OVERSEAS EXERCISE, OTHER (typed)</td><td>AM</td><td>Same reason at PM and Stay-in</td></tr>
       <tr><td>ASA / GD OUTGOING</td><td>AM</td><td>Out from PM</td></tr>
       <tr><td>ASA / GD CURRENT</td><td>PM</td><td>Same at Stay-in, then OUTGOING next AM, then Out</td></tr>
       <tr><td>Anything else</td><td>Any</td><td>Out from the next parade</td></tr>
     </tbody>
   </table></div>
   <ul>
-    <li><b>Several days</b> (MC, LL, OSL, OFF, Course): the reason shows at every parade inside its dates. LL, OSL and OFF show Out at Stay-in on their last day only.</li>
+    <li><b>Several days</b> (MC, LL, OSL, OFF, Course, Overseas Exercise): the reason shows at every parade inside its dates. LL, OSL and OFF show Out at Stay-in on their last day only.</li>
     <li><b>Leave entered ahead of time</b>: LL, OSL and OFF also show at the Stay-in the night before they start.</li>
     <li><b>MC starting on a Monday</b> also covers Sunday's Stay-in, including one already saved in History.</li>
     <li><b>MC never replaces RSO.</b> If both cover a parade, RSO shows.</li>
@@ -501,10 +501,11 @@ h2 { color: var(--text); }
   <h3 id="g-data">Data tab</h3>
   <ul>
     <li><b>MC, Leaves, MA, Offs, Others</b> each list every employee (ORD included) with a dropdown of their records, newest first. Each record shows its From → To.</li>
-    <li><b>Adding a record</b>: choose the person, reason and date. For MC, leave and Course, set the days, first day and last day; they keep each other in step. <b>Shows on parade</b> fills in From and To using the rules above; change them if this one is different.</li>
+    <li><b>Adding a record</b>: choose the person, reason and date. For MC, leave, Course and Overseas Exercise, set the days, first day and last day; they keep each other in step. <b>Shows on parade</b> fills in From and To using the rules above; change them if this one is different.</li>
     <li><b>Export message</b> (top of MC, Leaves, MA, Offs, Others) writes a "Personnel on MC"-style message for one month, or for all months together under a "first month - last month" heading, per person with how many times and each date. Leaves, MA and Others also show which reason.</li>
     <li><b>Search and sub-unit chips</b> narrow every list. Searching a reason's text (e.g. a course name) finds those records.</li>
     <li><b>Order</b>: the arrows on Sub-units and Employees set the order used everywhere, including exports.</li>
+    <li><b>Sound</b>: Data › SOUND turns sound effects on or off, sets the volume, and lets you try each one.</li>
     <li><b>ORD</b>: tick ORD and set the date they leave. They still appear on that date and any parade before it, and drop off from the next day.</li>
   </ul>
 
@@ -542,7 +543,7 @@ h2 { color: var(--text); }
     ['OFF', 'Leave'], ['RSO', 'Out'], ['OOC', 'Out'], ['ASA CURRENT', 'OnDuty'], ['ASA OUTGOING', 'OnDuty'],
     ['GD CURRENT', 'OnDuty'], ['GD OUTGOING', 'OnDuty'],
     ['MEDIC DUTY', 'OnDuty'], ['MED COVER', 'OnDuty'], ['BR COHESION', 'Out'], ['LATE', 'Out'],
-    ['SKILLSFUTURE', 'Out'], ['COURSE', 'Out'], ['BR WORK', 'Out'], ['PM LL', 'Leave'],
+    ['SKILLSFUTURE', 'Out'], ['COURSE', 'Out'], ['OVERSEAS EXERCISE', 'Out'], ['BR WORK', 'Out'], ['PM LL', 'Leave'],
     ['AM LL', 'Leave'], ['AM OSL', 'Leave'], ['PM OSL', 'Leave'], ['OTHER', 'Out']
   ];
   var REASON_BUCKET = {};
@@ -559,6 +560,7 @@ h2 { color: var(--text); }
     'MC': { type: 'dates' }, 'OSL': { type: 'dates' }, 'LL': { type: 'dates' },
     'OOC': { type: 'text', placeholder: 'Camp/Activity' },
     'COURSE': { type: 'text-dates', placeholder: 'Course name' },
+    'OVERSEAS EXERCISE': { type: 'text-dates', placeholder: 'Exercise name' },
     'OTHER': { type: 'text', placeholder: 'Describe the reason' }
   };
   var BUCKET_LABEL = { In: 'In', Out: 'Out', OnDuty: 'On Duty', Leave: 'Leave', MC: 'MC' };
@@ -577,7 +579,7 @@ h2 { color: var(--text); }
     'OFF': 'offs',
     'RSO': 'others', 'OOC': 'others', 'ASA CURRENT': 'others', 'ASA OUTGOING': 'others', 'GD CURRENT': 'others', 'GD OUTGOING': 'others', 'MEDIC DUTY': 'others',
     'MED COVER': 'others', 'BR COHESION': 'others', 'LATE': 'others', 'SKILLSFUTURE': 'others',
-    'COURSE': 'others', 'BR WORK': 'others', 'OTHER': 'others'
+    'COURSE': 'others', 'OVERSEAS EXERCISE': 'others', 'BR WORK': 'others', 'OTHER': 'others'
   };
   var EMPLOYEE_RANKS = ['REC', 'PTE', 'LCP', 'CPL', '3SG', '2SG', '1SG', 'SSG', 'MSG', '2LT', 'LTA'];
   var SUPERIOR_RANKS = ['3SG', '2SG', '1SG', 'SSG', 'MSG', '3WO', '2WO', '1WO', 'MWO', 'SWO', '2LT', 'LTA', 'CPT', 'MAJ', 'LTC', 'SLTC', 'COL'];
@@ -815,6 +817,8 @@ h2 { color: var(--text); }
     await loadAttendanceAndDutyForDate_(APP.date);
     historyList = await idbGetAll('paradeHistory');
     await loadAbsenceRecords_();
+    var soundSetting = await idbGet('settings', 'sound');
+    if (soundSetting && soundSetting.value) { soundOn = soundSetting.value.on !== false; if (typeof soundSetting.value.volume === 'number') soundVolume = soundSetting.value.volume; }
     var companySetting = await idbGet('settings', 'companyName');
     APP.companyName = companySetting ? companySetting.value : '';
     APP.timePresets = await idbGetAll('timePresets');
@@ -858,7 +862,99 @@ h2 { color: var(--text); }
     APP.dailyDuty = duty || { date: dateIso, amCdsEmployeeId: '', pmCdsEmployeeId: '', amCdoSuperiorId: '', pmCdoSuperiorId: '', stayInCdsEmployeeId: '' };
   }
 
+
+  // ================= SOUND EFFECTS ("Starship") =================
+  /* All sounds are made on the spot with the browser's Web Audio API — no
+   * sound files, works offline. They follow the phone's ringer/silent switch
+   * on iPhone. Settings live in Data › SOUND (on/off + volume), saved under
+   * settings key 'sound'. The audio engine only starts after the first tap,
+   * because phones block sound until the person has touched the screen. */
+  var soundOn = true, soundVolume = 0.6;
+  var _ac = null, _master = null, _echoIn = null, _lastSoundAt = 0;
+  function audio_() {
+    if (!soundOn) return null;
+    try {
+      if (!_ac) {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        _ac = new AC();
+        _master = _ac.createGain(); _master.connect(_ac.destination);
+        // shared echo: delay with feedback, mixed back into the master
+        _echoIn = _ac.createGain();
+        var dl = _ac.createDelay(1.0), fb = _ac.createGain(), wet = _ac.createGain();
+        dl.delayTime.value = 0.09; fb.gain.value = 0.35; wet.gain.value = 0.55;
+        _echoIn.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(_master);
+      }
+      if (_ac.state === 'suspended') _ac.resume();
+      _master.gain.value = soundVolume;
+      return _ac;
+    } catch (err) { return null; }
+  }
+  /** One voice: frequency glides f0 → f1 over dur, sharp attack, exponential
+   *  decay, optional FM shimmer, optional send to the echo. */
+  function voice_(f0, f1, start, dur, opts) {
+    var ac = audio_(); if (!ac) return;
+    opts = opts || {};
+    var t0 = ac.currentTime + start;
+    var o = ac.createOscillator(), g = ac.createGain();
+    o.type = opts.type || 'sine';
+    o.frequency.setValueAtTime(f0, t0);
+    if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
+    if (opts.fm) {
+      var m = ac.createOscillator(), mg = ac.createGain();
+      m.frequency.value = opts.fmRate || 30; mg.gain.value = opts.fm;
+      m.connect(mg); mg.connect(o.frequency); m.start(t0); m.stop(t0 + dur + 0.05);
+    }
+    var peak = (opts.gain || 0.5);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(_master);
+    if (opts.echo) { var e = ac.createGain(); e.gain.value = opts.echo; g.connect(e); e.connect(_echoIn); }
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  function bell_(f, start, dur, opts) {
+    opts = opts || {};
+    voice_(f, f, start, dur, { gain: (opts.gain || 0.4), echo: opts.echo });
+    voice_(f * 2.01, f * 2.01, start, dur * 0.7, { gain: (opts.gain || 0.4) * 0.35, echo: opts.echo });
+    voice_(f * 3.02, f * 3.02, start, dur * 0.5, { gain: (opts.gain || 0.4) * 0.15, echo: opts.echo });
+  }
+  var SOUNDS = {
+    tap: function () { voice_(2600, 1300, 0, 0.05, { gain: 0.22 }); },
+    in: function () { voice_(600, 1500, 0, 0.16, { gain: 0.45, fm: 36, fmRate: 30, echo: 0.6 }); },
+    out: function () { voice_(1500, 600, 0, 0.16, { gain: 0.45, fm: 36, fmRate: 30, echo: 0.6 }); },
+    save: function () {
+      bell_(880, 0, 0.18, { gain: 0.35, echo: 0.7 }); bell_(1320, 0.1, 0.5, { gain: 0.35, echo: 0.7 });
+      bell_(884, 0, 0.18, { gain: 0.2, echo: 0.5 }); bell_(1326, 0.1, 0.5, { gain: 0.2, echo: 0.5 });
+    },
+    error: function () { voice_(140, 90, 0, 0.32, { gain: 0.55, fm: 120, fmRate: 40 }); },
+    ping: function () { bell_(2093, 0, 0.3, { gain: 0.25, echo: 0.8 }); }
+  };
+  function playSound_(name) {
+    if (!soundOn || !SOUNDS[name]) return;
+    try { SOUNDS[name](); _lastSoundAt = Date.now(); } catch (err) { /* sound is never essential */ }
+  }
+  /** Picks the sound for a message bar from what the message says. */
+  function soundForToast_(msg) {
+    var m = String(msg || '');
+    if (/^Marked present|^Back to /.test(m)) return 'in';
+    if (/^Marked out|^Saved to Data ›/.test(m)) return 'out';
+    if (/^(Deleted|Delete)|deleted\.?$|^Removed/i.test(m)) return 'error';
+    if (/^(Please|Type |Enter |Choose |Pick |Set the|Could not|That |This doesn|No data|Nothing new|Reorder failed|Copy isn)|failed|isn't available|before "From"/i.test(m)) return 'error';
+    if (/^(Saved|Record added|Record updated|Employee saved|Superior saved|Sub-unit saved|Restored|Backup copied|Copied|History:|Company name saved)/.test(m)) return 'save';
+    return 'ping';
+  }
+  async function saveSoundSettings_() {
+    try { await idbBulkPut('settings', [{ key: 'sound', value: { on: soundOn, volume: soundVolume } }]); } catch (err) { console.log('[Sound] settings save failed:', err); }
+  }
+  // Quiet tap on navigation controls (tabs, AM/PM/Stay-in, chips, people rows).
+  document.addEventListener('click', function (ev) {
+    var el = ev.target && ev.target.closest ? ev.target.closest('.maintab, .seg-btn, .chip, .emprow, .emp-drop > summary') : null;
+    if (el) playSound_('tap');
+  }, true);
+
   function showToast(msg) {
+    playSound_(soundForToast_(msg));
     var t = document.getElementById('toast');
     t.textContent = msg;
     t.classList.add('show');
@@ -926,10 +1022,16 @@ h2 { color: var(--text); }
     if (!trimmed) return { ok: false, message: 'Please fill in "' + (placeholder || 'the detail') + '" for this ' + reasonName + '.' };
     return { ok: true, value: reasonName + ' ' + trimmed };
   }
+  /** Reasons whose stored text leaves out the "ND " day count — the message
+   *  shows just the name and the dates, e.g. "Exercise Name 271026-281026". */
+  var NO_DAY_COUNT_REASONS = { 'OVERSEAS EXERCISE': true };
   function buildTextDatesReasonString_(reasonName, text, days, startDate) {
     var trimmed = (text || '').trim();
-    if (!trimmed) return { ok: false, message: 'Please fill in the course name for this ' + reasonName + '.' };
+    if (!trimmed) return { ok: false, message: 'Please fill in the ' + (reasonName === 'OVERSEAS EXERCISE' ? 'exercise' : 'course') + ' name for this ' + reasonName + '.' };
     if (!startDate) return { ok: false, message: 'Please fill in the start date for this ' + reasonName + '.' };
+    if (days > 1 && NO_DAY_COUNT_REASONS[reasonName]) {
+      return { ok: true, value: reasonName + ' ' + trimmed + ' ' + formatDDMMYY_(startDate) + '-' + formatDDMMYY_(addWeekdaysIso_(startDate, days)) };
+    }
     if (days > 1) {
       var endDate = addWeekdaysIso_(startDate, days);
       return { ok: true, value: days + 'D ' + reasonName + ' ' + trimmed + ' ' + formatDDMMYY_(startDate) + '-' + formatDDMMYY_(endDate) };
@@ -949,6 +1051,7 @@ h2 { color: var(--text); }
   function formatReasonForExport_(reason) {
     if (reason && reason.indexOf('OOC ') === 0) return 'OOC @ ' + reason.slice(4);
     if (reason && reason.indexOf('OTHER ') === 0) return reason.slice(6);
+    if (reason && reason.indexOf('OVERSEAS EXERCISE ') === 0) return reason.slice(18);
     return reason;
   }
   function adminFieldsFor_(reasonName) {
@@ -1429,7 +1532,7 @@ h2 { color: var(--text); }
     } else if (reasonName === 'LL' || reasonName === 'OSL' || reasonName === 'OFF') {
       start = { date: previousDayIso_(sd), session: 'STAYIN' };
       end = { date: last, session: 'PM' };
-    } else if (reasonName === 'COURSE' || reasonName === 'OTHER') {
+    } else if (reasonName === 'COURSE' || reasonName === 'OVERSEAS EXERCISE' || reasonName === 'OTHER') {
       start = { date: sd, session: sd === pickedDate ? (pickedSession || 'AM') : 'AM' };
       end = { date: last, session: 'STAYIN' };
     } else if (reasonName === 'ASA CURRENT' || reasonName === 'GD CURRENT') {
@@ -1997,6 +2100,9 @@ h2 { color: var(--text); }
    *  (e.g. "Dental") since "OTHER" alone says nothing. */
   function reasonExportType_(rec) {
     if (rec.reasonName === 'OTHER' && rec.reason && rec.reason.indexOf('OTHER ') === 0) return rec.reason.slice(6);
+    if (rec.reasonName === 'OVERSEAS EXERCISE' && rec.reason && rec.reason.indexOf('OVERSEAS EXERCISE ') === 0) {
+      return rec.reason.slice(18).replace(/ \d{6}(-\d{6})?$/, ''); // just the exercise name; the dates are already on the line
+    }
     return rec.reasonName;
   }
   var MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -2119,7 +2225,7 @@ h2 { color: var(--text); }
     var html = '';
 
     var tabs = [['subunits', 'SUB-UNITS'], ['employees', 'EMPLOYEES'], ['superiors', 'SUPERIORS'],
-      ['company', 'COMPANY'], ['time', 'TIME'],
+      ['company', 'COMPANY'], ['time', 'TIME'], ['sound', 'SOUND'],
       ['mc', 'MC'], ['leaves', 'LEAVES'], ['ma', 'MA'], ['offs', 'OFFS'], ['others', 'OTHERS']];
     html += '<div class="chiprow">' + tabs.map(function (t) {
       return '<button class="chip ' + (dataSubTab === t[0] ? 'active' : '') + '" data-datatab="' + t[0] + '">' + t[1] + '</button>';
@@ -2162,6 +2268,14 @@ h2 { color: var(--text); }
         return '<div class="list-row" data-timepreset="' + esc(t.id) + '" style="cursor:default;"><div class="name">' + esc(t.label) + '</div>' +
           '<button class="btn small danger" data-del-timepreset="' + esc(t.id) + '">DELETE</button></div>';
       }).join('') || '<div class="empty-hint">No time presets yet.</div>';
+    } else if (dataSubTab === 'sound') {
+      html += '<div class="banner">Short sound effects for taps, marking people, saving and errors. They follow your phone\'s silent switch.</div>';
+      html += '<div class="toggle-row"><span>Sound effects</span><input type="checkbox" id="soundOnInput" ' + (soundOn ? 'checked' : '') + '></div>';
+      html += '<div class="field-row" style="margin-top:12px;"><label>Volume</label><input type="range" id="soundVolInput" min="0" max="100" step="5" value="' + Math.round(soundVolume * 100) + '"></div>';
+      html += '<div class="field-row"><label>Try them</label></div><div class="chiprow">' +
+        [['tap', 'TAP'], ['in', 'MARK IN'], ['out', 'MARK OUT'], ['save', 'SAVE'], ['error', 'DELETE / ERROR'], ['ping', 'MESSAGE']].map(function (x) {
+          return '<button class="btn small ghost" data-test-sound="' + x[0] + '">' + x[1] + '</button>';
+        }).join('') + '</div>';
     } else if (REASON_CATEGORIES[dataSubTab]) {
       html += absenceRecordsPanel(dataSubTab);
     }
@@ -2449,6 +2563,12 @@ h2 { color: var(--text); }
     var multi = reasonStr.match(new RegExp('^(\\d+)D ' + escaped + ' (.+) (\\d{6})-(\\d{6})$'));
     if (multi) return { days: parseInt(multi[1], 10), text: multi[2], startDate: ddmmyyToIso_(multi[3]), endDate: ddmmyyToIso_(multi[4]) };
     var single = reasonStr.match(new RegExp('^' + escaped + ' (.+) (\\d{6})$'));
+    // Multi-day without the "ND " count (e.g. OVERSEAS EXERCISE): work the days out from the dates.
+    var ranged = reasonStr.match(new RegExp('^' + escaped + ' (.+) (\\d{6})-(\\d{6})$'));
+    if (ranged) {
+      var rs = ddmmyyToIso_(ranged[2]), re = ddmmyyToIso_(ranged[3]);
+      return { days: countWeekdaysBetween_(rs, re), text: ranged[1], startDate: rs, endDate: re };
+    }
     if (single) return { days: 1, text: single[1], startDate: ddmmyyToIso_(single[2]), endDate: '' };
     return null;
   }
@@ -3192,6 +3312,13 @@ h2 { color: var(--text); }
       });
     }
 
+    if (dataSubTab === 'sound') {
+      var sOn = document.getElementById('soundOnInput');
+      if (sOn) sOn.addEventListener('change', function () { soundOn = sOn.checked; saveSoundSettings_(); if (soundOn) playSound_('ping'); });
+      var sVol = document.getElementById('soundVolInput');
+      if (sVol) sVol.addEventListener('change', function () { soundVolume = (parseInt(sVol.value, 10) || 0) / 100; saveSoundSettings_(); playSound_('ping'); });
+      document.querySelectorAll('[data-test-sound]').forEach(function (b) { b.addEventListener('click', function () { playSound_(b.getAttribute('data-test-sound')); }); });
+    }
     if (dataSubTab === 'time') {
       var addTimeBtn = document.getElementById('btnAddTimePreset');
       if (addTimeBtn) addTimeBtn.addEventListener('click', function () { openTimePresetModal(); });
